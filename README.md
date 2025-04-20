@@ -1,4 +1,29 @@
-# MCP Run Python Local
+# Development Instructions
+
+If you're developing this package locally and want to test it before publishing to JSR, you can use the included development script:
+
+```bash
+# Make the script executable
+chmod +x run_local.sh
+
+# Run in stdio mode with default mount point
+./run_local.sh stdio
+
+# Run in SSE mode with custom mount point and local path
+./run_local.sh sse /my-virtual-path /real/local/path
+```
+
+## Project Structure
+
+```
+mcp-run-python-local/
+├── deno.json            # Deno configuration
+├── run_local.sh         # Development helper script
+├── README.md            # Documentation
+└── src/
+    ├── main.ts          # Main implementation
+    └── polyfill.ts      # Compatibility layer
+```# MCP Run Python Local
 
 A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping.
 
@@ -79,7 +104,7 @@ server = MCPServerStdio('deno',
     args=[
         'run',
         '-A',
-        'jsr:@custom/mcp-run-python-local',
+        'jsr:@changhc/mcp-run-python-local',
         'stdio',
         '--mount', '/working',
         '--path', '/path/to/your/local/directory'
