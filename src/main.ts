@@ -129,6 +129,7 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       args: [tempFilePath],
       stdout: "piped",
       stderr: "piped",
+      cwd: fsConfig.localPath // Set working directory to the mapped local path
     });
     
     const { code, stdout, stderr } = await command.output();
@@ -195,8 +196,9 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     
     const command = new Deno.Command("python", {
       args: [localFilePath],
-      stdout: "piped",
+      stdout: "piped", 
       stderr: "piped",
+      cwd: fsConfig.localPath // Set working directory to the mapped local path
     });
     
     const { code, stdout, stderr } = await command.output();
