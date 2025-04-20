@@ -1,0 +1,17 @@
+{
+    "name": "@custom/mcp-run-python-local",
+    "version": "0.0.1",
+    "description": "MCP server to run Python code locally with filesystem access",
+    "main": "src/main.ts",
+    "type": "module",
+    "scripts": {
+      "build": "deno task lint-format",
+      "start": "deno run -A src/main.ts"
+    },
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+      "@modelcontextprotocol/sdk": "^1.8.0",
+      "zod": "^3.24.2"
+    }
+  }

@@ -2,24 +2,34 @@
     "name": "@changhc/mcp-run-python-local",
     "version": "0.0.2",
     "license": "MIT",
+    "nodeModulesDir": "auto",
     "exports": {
-      ".": "./src/main_local.ts"
+      ".": "./src/main.ts"
+    },
+    "tasks": {
+      "lint-format": "deno fmt && deno lint && deno check src"
     },
     "imports": {
       "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.8.0",
       "@std/cli": "jsr:@std/cli@^1.0.15",
-      "@std/fs": "jsr:@std/fs@^0.224.0",
-      "zod": "npm:zod@^3.24.2",
-      "uuid": "npm:uuid@^9.0.0"
-    },
-    "compilerOptions": {
-      "types": ["node"],
-      "lib": ["ESNext", "deno.ns", "dom"]
+      "zod": "npm:zod@^3.24.2"
     },
     "fmt": {
       "lineWidth": 120,
       "semiColons": false,
       "singleQuote": true,
-      "include": ["src/"]
+      "include": [
+        "src/"
+      ]
+    },
+    "compilerOptions": {
+      "types": [
+        "node"
+      ],
+      "lib": [
+        "ESNext",
+        "deno.ns",
+        "dom"
+      ]
     }
   }
