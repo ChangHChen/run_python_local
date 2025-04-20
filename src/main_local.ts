@@ -68,7 +68,7 @@ async function runLocalPython(
 
   /* bootstrap script (runs inside host python) */
   const bootstrap = `
-import json, sys, subprocess, importlib, traceback, re, ast, os
+import json, sys, subprocess, importlib, traceback, re, ast, os, io
 from pathlib import Path
 
 WORKDIR = Path("${work}")
@@ -101,13 +101,28 @@ deps = find_deps(code)
 if deps:
     subprocess.run([sys.executable, "-m", "pip", "install", *deps], check=False)
 
-ns={"__name__":"__main__"}
+buf = io.StringIO()
+old_stdout = sys.stdout
+sys.stdout = buf
 try:
+    ns = {"__name__": "__main__"}
     exec(compile(code, "${active.name}", "exec"), ns)
     rv = ns.get("rv", None)
-    out={"status":"success","dependencies":deps,"output":[],"return_value":json.dumps(rv,default=str) if rv is not None else None}
-except Exception as e:
-    out={"status":"run-error","dependencies":deps,"output":[], "error": traceback.format_exc()}
+    out = {
+        "status": "success",
+        "dependencies": deps,
+        "output": buf.getvalue().splitlines(),
+        "return_value": json.dumps(rv, default=str) if rv is not None else None,
+    }
+except Exception:
+    out = {
+        "status": "run-error",
+        "dependencies": deps,
+        "output": buf.getvalue().splitlines(),
+        "error": traceback.format_exc(),
+    }
+finally:
+    sys.stdout = old_stdout
 
 print(json.dumps(out, ensure_ascii=False))
   `.trim()
