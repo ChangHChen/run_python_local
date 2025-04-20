@@ -15,7 +15,7 @@ Model‑Context‑Protocol agent.
 
 ```bash
 # ❯ deno run (permissions: -A = allow‑all, or tighten them if you prefer)
-deno run -A jsr:@your-scope/mcp-run-python-local stdio \
+deno run -A jsr:@changhc/mcp-run-python-local stdio \
   --mount {local_dir}:{virtual_dir}
 ```
 
