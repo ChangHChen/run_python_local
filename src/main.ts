@@ -48,6 +48,13 @@ function virtualToLocalPath(virtualPath: string): string {
   return `${fsConfig.localPath}${relativePath}`;
 }
 
+function replaceVirtualPaths(code: string): string {
+  // Replace all occurrences of the mount point with the local path
+  return code.replace(
+    new RegExp(fsConfig.mountPoint, 'g'), 
+    fsConfig.localPath
+  );
+}
 // Detect and install Python dependencies from code or file
 async function detectAndInstallDependencies(pythonCode: string, log: (level: LoggingLevel, data: string) => void): Promise<string[]> {
   // Check for PEP 723 dependencies
@@ -115,12 +122,15 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     // Ensure the mount directory exists
     await ensureMountDirectoryExists();
     
-    // Create a temporary file to hold the Python code
+    // Process the Python code to replace virtual paths with local paths
+    const processedCode = replaceVirtualPaths(pythonCode);
+    
+    // Create a temporary file to hold the processed Python code
     const tempFilePath = `${fsConfig.localPath}/_temp_${Date.now()}.py`;
-    await Deno.writeTextFile(tempFilePath, pythonCode);
+    await Deno.writeTextFile(tempFilePath, processedCode);
     
     // Detect and install dependencies
-    const dependencies = await detectAndInstallDependencies(pythonCode, log);
+    const dependencies = await detectAndInstallDependencies(processedCode, log);
     
     // Run the Python code
     log('info', `Running Python code from ${tempFilePath}`);
@@ -129,7 +139,7 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       args: [tempFilePath],
       stdout: "piped",
       stderr: "piped",
-      cwd: fsConfig.localPath // Set working directory to the mapped local path
+      cwd: fsConfig.localPath  // Set working directory to the mapped local path
     });
     
     const { code, stdout, stderr } = await command.output();
@@ -194,6 +204,7 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     // Run the Python file
     log('info', `Running Python file: ${localFilePath}`);
     
+
     const command = new Deno.Command("python", {
       args: [localFilePath],
       stdout: "piped", 
