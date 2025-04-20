@@ -13,7 +13,6 @@
     "imports": {
       "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.8.0",
       "@std/cli": "jsr:@std/cli@^1.0.15",
-      "@std/http": "jsr:@std/http@^1.0.0",
       "zod": "npm:zod@^3.24.2"
     },
     "fmt": {

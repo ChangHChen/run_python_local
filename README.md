@@ -1,4 +1,19 @@
-# Development Instructions
+# Technical Implementation
+
+The server is built using:
+
+1. **Deno Runtime**: A secure JavaScript runtime with TypeScript support
+2. **Model Context Protocol (MCP)**: For structured communication between AI models and external tools
+3. **Native Deno APIs**:
+   - `Deno.Command` for executing Python processes
+   - `Deno.serve` for the HTTP server (SSE transport)
+   - Standard file system operations
+
+When using the server:
+- It maps a virtual path (e.g., `/working`) to a local directory
+- Python code is executed with the local Python interpreter
+- Dependencies are installed using pip if specified in PEP 723 format
+- Results and errors are captured and formatted as XML# Development Instructions
 
 If you're developing this package locally and want to test it before publishing to JSR, you can use the included development script:
 
@@ -104,7 +119,7 @@ server = MCPServerStdio('deno',
     args=[
         'run',
         '-A',
-        'jsr:@changhc/mcp-run-python-local',
+        'jsr:@custom/mcp-run-python-local',
         'stdio',
         '--mount', '/working',
         '--path', '/path/to/your/local/directory'

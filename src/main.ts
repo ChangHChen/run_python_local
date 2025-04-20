@@ -2,7 +2,6 @@
 
 import './polyfill.ts';
 import { parseArgs } from '@std/cli/parse-args';
-import { serve } from '@std/http/server';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -355,7 +354,8 @@ function runSse(port: number) {
   const mcpServer = createServer();
   const transports: { [sessionId: string]: SSEServerTransport } = {};
 
-  const handler = (request: Request): Response => {
+  // Create HTTP server using Deno.serve
+  Deno.serve({ port }, (request) => {
     const url = new URL(request.url);
     const { pathname } = url;
     
@@ -410,11 +410,9 @@ function runSse(port: number) {
         status: pathname === '/' ? 200 : 404
       });
     }
-  };
+  });
   
-  // Start the server
   console.log(`Running MCP Run Python Local version ${VERSION} with SSE transport on port ${port}`);
-  serve(handler, { port });
 }
 
 // Run the MCP server with Stdio transport
