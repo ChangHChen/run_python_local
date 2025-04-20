@@ -79,19 +79,19 @@ irm https://deno.land/install.ps1 | iex
 To run with stdio transport (for local subprocess usage):
 
 ```bash
-deno run -A jsr:@custom/mcp-run-python-local stdio --mount /working --path /path/to/your/local/directory
+deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /working_space --path /path/to/your/local/directory
 ```
 
 To run as an HTTP server with SSE transport:
 
 ```bash
-deno run -A jsr:@custom/mcp-run-python-local sse --port 3001 --mount /working --path /path/to/your/local/directory
+deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /working_space --path /path/to/your/local/directory
 ```
 
 To test if everything is working correctly (does a basic Python test):
 
 ```bash
-deno run -A jsr:@custom/mcp-run-python-local warmup
+deno run -A jsr:@changhc/mcp-run-python-local warmup
 ```
 
 ### Options
@@ -119,7 +119,7 @@ server = MCPServerStdio('deno',
     args=[
         'run',
         '-A',
-        'jsr:@custom/mcp-run-python-local',
+        'jsr:@changhc/mcp-run-python-local',
         'stdio',
         '--mount', '/working',
         '--path', '/path/to/your/local/directory'

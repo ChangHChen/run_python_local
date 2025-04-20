@@ -293,25 +293,9 @@ function createServer(): McpServer {
 
   const toolDescription = `Tool to execute Python code directly on the local machine.
   
-The code will be executed with the locally installed Python interpreter.
+The code will be executed with the locally installed Python interpreter.`;
 
-Dependencies may be defined via PEP 723 script metadata, e.g. to install "pydantic", the script should start
-with a comment of the form:
-
-# /// script
-# dependencies = ['pydantic']
-# ///
-print('python code here')
-
-Files can be read/written at the virtual mount point: ${fsConfig.mountPoint}
-These files will be stored at: ${fsConfig.localPath} on the local machine.`;
-
-  const fileToolDescription = `Tool to execute a Python file on the local machine.
-  
-The file should be specified with a path starting with the virtual mount point: ${fsConfig.mountPoint}
-The file will be executed with the locally installed Python interpreter.
-
-Dependencies may be defined via PEP 723 script metadata.`;
+  const fileToolDescription = `Tool to execute a Python file on the local machine.`;
 
   let setLogLevel: LoggingLevel = 'emergency';
 
