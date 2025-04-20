@@ -1,5 +1,5 @@
 {
-    "name": "@your-scope/mcp-run-python-local",
+    "name": "@changhc/mcp-run-python-local",
     "version": "0.0.1",
     "license": "MIT",
     "exports": {
