@@ -1,9 +1,8 @@
 // File: src/main.ts
 
-import './polyfill.ts'
-import { serve } from "https://deno.land/std@0.140.0/http/server.ts";
-import { exec } from "https://deno.land/x/exec@0.0.5/mod.ts";
+import './polyfill.ts';
 import { parseArgs } from '@std/cli/parse-args';
+import { serve } from '@std/http/server';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -73,19 +72,14 @@ async function detectAndInstallDependencies(pythonCode: string, log: (level: Log
           // Install dependencies using pip
           const cmd = ["pip", "install", ...dependencies];
           log('info', `Running: pip install ${dependencies.join(' ')}`);
-          const p = Deno.run({
-            cmd,
+          
+          const command = new Deno.Command("pip", {
+            args: ["install", ...dependencies],
             stdout: "piped",
-            stderr: "piped"
+            stderr: "piped",
           });
           
-          const [status, stdout, stderr] = await Promise.all([
-            p.status(),
-            p.output(),
-            p.stderrOutput()
-          ]);
-          
-          p.close();
+          const { code, stdout, stderr } = await command.output();
           
           const textDecoder = new TextDecoder();
           const stdoutText = textDecoder.decode(stdout);
@@ -94,8 +88,8 @@ async function detectAndInstallDependencies(pythonCode: string, log: (level: Log
           log('info', stdoutText);
           if (stderrText) log('warning', stderrText);
           
-          if (!status.success) {
-            throw new Error(`pip install failed with exit code ${status.code}`);
+          if (code !== 0) {
+            throw new Error(`pip install failed with exit code ${code}`);
           }
           
           return dependencies;
@@ -129,19 +123,14 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     
     // Run the Python code
     log('info', `Running Python code from ${tempFilePath}`);
-    const p = Deno.run({
-      cmd: ["python", tempFilePath],
+    
+    const command = new Deno.Command("python", {
+      args: [tempFilePath],
       stdout: "piped",
-      stderr: "piped"
+      stderr: "piped",
     });
     
-    const [status, stdout, stderr] = await Promise.all([
-      p.status(),
-      p.output(),
-      p.stderrOutput()
-    ]);
-    
-    p.close();
+    const { code, stdout, stderr } = await command.output();
     
     const textDecoder = new TextDecoder();
     const stdoutText = textDecoder.decode(stdout).split('\n');
@@ -154,7 +143,7 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       log('warning', `Failed to clean up temporary file: ${err.message}`);
     }
     
-    if (status.success) {
+    if (code === 0) {
       return {
         status: 'success',
         dependencies,
@@ -166,7 +155,7 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
         status: 'error',
         dependencies,
         output: stdoutText,
-        error: stderrText || `Process exited with code ${status.code}`
+        error: stderrText || `Process exited with code ${code}`
       };
     }
   } catch (error) {
@@ -200,25 +189,20 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     
     // Run the Python file
     log('info', `Running Python file: ${localFilePath}`);
-    const p = Deno.run({
-      cmd: ["python", localFilePath],
+    
+    const command = new Deno.Command("python", {
+      args: [localFilePath],
       stdout: "piped",
-      stderr: "piped"
+      stderr: "piped",
     });
     
-    const [status, stdout, stderr] = await Promise.all([
-      p.status(),
-      p.output(),
-      p.stderrOutput()
-    ]);
-    
-    p.close();
+    const { code, stdout, stderr } = await command.output();
     
     const textDecoder = new TextDecoder();
     const stdoutText = textDecoder.decode(stdout).split('\n');
     const stderrText = textDecoder.decode(stderr);
     
-    if (status.success) {
+    if (code === 0) {
       return {
         status: 'success',
         dependencies,
@@ -230,7 +214,7 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
         status: 'error',
         dependencies,
         output: stdoutText,
-        error: stderrText || `Process exited with code ${status.code}`
+        error: stderrText || `Process exited with code ${code}`
       };
     }
   } catch (error) {
@@ -371,25 +355,53 @@ function runSse(port: number) {
   const mcpServer = createServer();
   const transports: { [sessionId: string]: SSEServerTransport } = {};
 
-  // Create HTTP server function
-  const handler = async (request: Request): Promise<Response> => {
+  const handler = (request: Request): Response => {
     const url = new URL(request.url);
     const { pathname } = url;
     
     if (pathname === '/sse' && request.method === 'GET') {
-      // This will be handled by SSE transport
-      const { response, headers } = await createSSEHandler();
-      const responseInit = { headers };
+      // Create a response handler for SSE
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
       
-      return new Response(response.body, responseInit);
+      const headers = new Headers({
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      });
+      
+      const response = {
+        flushHeaders: () => {},
+        on: (_event: string, _callback: () => void) => {},
+        write: (data: string) => {
+          writer.write(new TextEncoder().encode(data));
+          return true;
+        },
+        end: () => {
+          writer.close();
+        }
+      };
+      
+      const transport = new SSEServerTransport('/messages', response as any);
+      transports[transport.sessionId] = transport;
+      
+      // Remove transport on connection close
+      request.signal.addEventListener('abort', () => {
+        delete transports[transport.sessionId];
+      });
+      
+      mcpServer.connect(transport);
+      
+      return new Response(readable, {
+        headers
+      });
     } else if (pathname === '/messages' && request.method === 'POST') {
       const sessionId = url.searchParams.get('sessionId') ?? '';
       const transport = transports[sessionId];
       
       if (transport) {
-        // Handle SSE message
-        const response = await handleSSEMessage(request, sessionId);
-        return response;
+        // Handle message - this is a simplified version
+        return new Response('Message received', { status: 200 });
       } else {
         return new Response(`No transport found for sessionId '${sessionId}'`, { status: 400 });
       }
@@ -399,43 +411,6 @@ function runSse(port: number) {
       });
     }
   };
-  
-  // Create an SSE handler
-  async function createSSEHandler() {
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const headers = new Headers({
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    });
-    
-    // Create a custom response object that the transport can use
-    const response = {
-      body: readable,
-      flushHeaders: () => {},
-      on: (event: string, handler: () => void) => {
-        if (event === 'close') {
-          // Handle close event
-        }
-      }
-    };
-    
-    const transport = new SSEServerTransport('/messages', response as any);
-    transports[transport.sessionId] = transport;
-    
-    await mcpServer.connect(transport);
-    
-    return { response, headers };
-  }
-  
-  // Handle SSE message
-  async function handleSSEMessage(request: Request, sessionId: string) {
-    const transport = transports[sessionId];
-    // This would need to be implemented based on the SSEServerTransport's API
-    // For now, we'll return a basic response
-    return new Response('Message received', { status: 200 });
-  }
   
   // Start the server
   console.log(`Running MCP Run Python Local version ${VERSION} with SSE transport on port ${port}`);
@@ -468,43 +443,6 @@ const LogLevels: LoggingLevel[] = [
   'alert',
   'emergency',
 ];
-
-// Process command-line arguments and run the server
-export async function main() {
-  const { args } = Deno;
-  
-  if (args.length >= 1) {
-    const flags = parseArgs(Deno.args, {
-      string: ['port', 'mount', 'path'],
-      default: { 
-        port: '3001',
-        mount: defaultConfig.mountPoint,
-        path: defaultConfig.localPath
-      },
-    });
-    
-    // Set up file system config
-    fsConfig = {
-      mountPoint: flags.mount,
-      localPath: flags.path
-    };
-    
-    if (args[0] === 'stdio') {
-      await runStdio();
-    } else if (args[0] === 'sse') {
-      const port = parseInt(flags.port);
-      runSse(port);
-    } else if (args[0] === 'warmup') {
-      await warmup();
-    } else {
-      printUsage();
-      Deno.exit(1);
-    }
-  } else {
-    printUsage();
-    Deno.exit(1);
-  }
-}
 
 function printUsage() {
   console.error(
@@ -544,6 +482,43 @@ print("Warmup test successful!")
     console.log('\nWarmup successful 🎉');
   } catch (error) {
     console.error('Warmup failed:', error);
+    Deno.exit(1);
+  }
+}
+
+// Process command-line arguments and run the server
+export async function main() {
+  const { args } = Deno;
+  
+  if (args.length >= 1) {
+    const flags = parseArgs(Deno.args, {
+      string: ['port', 'mount', 'path'],
+      default: { 
+        port: '3001',
+        mount: defaultConfig.mountPoint,
+        path: defaultConfig.localPath
+      },
+    });
+    
+    // Set up file system config
+    fsConfig = {
+      mountPoint: flags.mount,
+      localPath: flags.path
+    };
+    
+    if (args[0] === 'stdio') {
+      await runStdio();
+    } else if (args[0] === 'sse') {
+      const port = parseInt(flags.port);
+      runSse(port);
+    } else if (args[0] === 'warmup') {
+      await warmup();
+    } else {
+      printUsage();
+      Deno.exit(1);
+    }
+  } else {
+    printUsage();
     Deno.exit(1);
   }
 }
