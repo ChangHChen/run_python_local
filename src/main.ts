@@ -93,13 +93,15 @@ async function detectAndInstallDependencies(pythonCode: string, log: (level: Log
           
           return dependencies;
         } catch (error) {
-          log('error', `Failed to install dependencies: ${error.message}`);
-          throw error;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          log('error', `Failed to install dependencies: ${errorMessage}`);
+          throw new Error(`Failed to install dependencies: ${errorMessage}`);
         }
       }
     } catch (error) {
-      log('error', `Failed to parse dependencies: ${error.message}`);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log('error', `Failed to parse dependencies: ${errorMessage}`);
+      throw new Error(`Failed to parse dependencies: ${errorMessage}`);
     }
   }
   
@@ -139,7 +141,8 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     try {
       await Deno.remove(tempFilePath);
     } catch (err) {
-      log('warning', `Failed to clean up temporary file: ${err.message}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log('warning', `Failed to clean up temporary file: ${errorMessage}`);
     }
     
     if (code === 0) {
@@ -158,9 +161,10 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       };
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       status: 'error',
-      error: error.message,
+      error: errorMessage,
       output: [],
       dependencies: []
     };
@@ -217,9 +221,10 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
       };
     }
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       status: 'error',
-      error: error.message,
+      error: errorMessage,
       output: [],
       dependencies: []
     };
@@ -479,7 +484,8 @@ print("Warmup test successful!")
     console.log(asXml(result));
     console.log('\nWarmup successful 🎉');
   } catch (error) {
-    console.error('Warmup failed:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Warmup failed:', errorMessage);
     Deno.exit(1);
   }
 }

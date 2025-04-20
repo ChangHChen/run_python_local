@@ -28,6 +28,7 @@
         "ESNext",
         "deno.ns",
         "dom"
-      ]
+      ],
+      "noImplicitAny": false
     }
   }
