@@ -1,14 +1,14 @@
 # MCP Run Python Local
 
-A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and automatic dependency installation.
+A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and automatic dependency installation using isolated virtual environments.
 
 ## Features
 
-- Execute Python code directly on the local machine
-- Run Python files by path 
+- Execute Python code directly on the local machine using isolated virtual environments
+- Run Python files by path
 - Map a virtual filesystem path to a local directory
 - **Automatic detection and installation of missing dependencies**
-- Support for explicit dependencies via PEP 723 metadata
+- **Isolated execution environments for each run**
 - Similar interface to the Pyodide-based MCP Run Python server
 
 ## Key Differences from MCP Run Python
@@ -18,7 +18,8 @@ Unlike the Pyodide-based MCP Run Python server, this server:
 1. Runs code directly on your local Python interpreter (not in a sandbox)
 2. Has full access to your local filesystem through a configurable mount point
 3. Can run existing Python files, not just code strings
-4. Automatically detects and installs missing dependencies
+4. Automatically detects and installs missing dependencies in a virtual environment
+5. Creates an isolated virtual environment for each execution
 
 ## Usage
 
@@ -102,7 +103,16 @@ if __name__ == '__main__':
 
 ## Automatic Dependency Installation
 
-This server automatically detects and installs missing Python packages when they are imported in your code. For example:
+This server automatically detects and installs missing Python packages when they are imported in your code. For each execution, it:
+
+1. Creates a fresh virtual environment
+2. Runs your code in this isolated environment
+3. Detects any missing dependencies (like pandas, matplotlib, etc.)
+4. Installs them directly in the virtual environment
+5. Reruns your code with the dependencies available
+6. Cleans up the virtual environment when finished
+
+For example:
 
 ```python
 import pandas as pd  # pandas will be automatically installed if missing
@@ -111,19 +121,22 @@ df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
 print(df)
 ```
 
-You can also explicitly declare dependencies using PEP 723 format:
+## How It Works
 
-```python
-# /// script
-# dependencies = ['matplotlib', 'numpy', 'pandas']
-# ///
+This server creates a new Python virtual environment for each execution request:
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+1. When you call `run_python_code` or `run_python_file`, the server:
+   - Creates a fresh virtual environment for this specific execution
+   - Executes your code in this environment
+   - If a `ModuleNotFoundError` occurs, it installs the missing package
+   - Reruns your code until all dependencies are satisfied or max retries reached
+   - Automatically cleans up the virtual environment when done
 
-# Your code here
-```
+This approach ensures:
+- Complete isolation between runs
+- No conflicts with system packages
+- No permission issues with package installation
+- Consistent behavior regardless of previous runs
 
 ## Security Considerations
 
@@ -131,7 +144,8 @@ import pandas as pd
 
 1. The Python code has full access to any files and resources available to the user running the server
 2. The virtual filesystem mapping provides convenience but not security isolation
-3. You should only use this with trusted AI systems and in controlled environments
+3. While each execution uses a separate virtual environment, this is for dependency management, not security
+4. You should only use this with trusted AI systems and in controlled environments
 
 Do not expose this server to untrusted inputs or to the public internet.
 
