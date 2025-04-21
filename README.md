@@ -1,14 +1,13 @@
 # MCP Run Python Local
 
-A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and automatic dependency installation using isolated virtual environments.
+A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment.
 
 ## Features
 
-- Execute Python code directly on the local machine using isolated virtual environments
+- Execute Python code directly on the local machine using a specified Python interpreter
 - Run Python files by path
 - Map a virtual filesystem path to a local directory
-- **Automatic detection and installation of missing dependencies**
-- **Isolated execution environments for each run**
+- **Use an existing Python virtual environment** instead of creating new ones for each run
 - Similar interface to the Pyodide-based MCP Run Python server
 
 ## Key Differences from MCP Run Python
@@ -18,8 +17,7 @@ Unlike the Pyodide-based MCP Run Python server, this server:
 1. Runs code directly on your local Python interpreter (not in a sandbox)
 2. Has full access to your local filesystem through a configurable mount point
 3. Can run existing Python files, not just code strings
-4. Automatically detects and installs missing dependencies in a virtual environment
-5. Creates an isolated virtual environment for each execution
+4. Can use an existing virtual environment with pre-installed dependencies
 
 ## Usage
 
@@ -41,13 +39,13 @@ irm https://deno.land/install.ps1 | iex
 To run with stdio transport (for local subprocess usage):
 
 ```bash
-deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /working_space --path /path/to/your/local/directory
+deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /working_space --path /path/to/your/local/directory --venv /path/to/your/virtualenv
 ```
 
 To run as an HTTP server with SSE transport:
 
 ```bash
-deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /working_space --path /path/to/your/local/directory
+deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /working_space --path /path/to/your/local/directory --venv /path/to/your/virtualenv
 ```
 
 To test if everything is working correctly (does a basic Python test):
@@ -61,6 +59,7 @@ deno run -A jsr:@changhc/mcp-run-python-local warmup
 - `--port`: Port to run the SSE server on (default: 3001)
 - `--mount`: Virtual path prefix for file access (default: /working)
 - `--path`: Local filesystem path that will be mapped to the mount point (default: a temp directory)
+- `--venv`: Path to an existing Python virtual environment to use (default: uses system Python)
 
 ## Using with PydanticAI
 
@@ -84,7 +83,8 @@ server = MCPServerStdio('deno',
         'jsr:@changhc/mcp-run-python-local',
         'stdio',
         '--mount', '/working',
-        '--path', '/path/to/your/local/directory'
+        '--path', '/path/to/your/local/directory',
+        '--venv', '/path/to/your/virtualenv'  # Specify your virtual environment
     ])
 
 # Create the agent with the server
@@ -101,42 +101,26 @@ if __name__ == '__main__':
     asyncio.run(main())
 ```
 
-## Automatic Dependency Installation
+## Using Existing Virtual Environments
 
-This server automatically detects and installs missing Python packages when they are imported in your code. For each execution, it:
+This server can use an existing Python virtual environment instead of creating new ones for each execution:
 
-1. Creates a fresh virtual environment
-2. Runs your code in this isolated environment
-3. Detects any missing dependencies (like pandas, matplotlib, etc.)
-4. Installs them directly in the virtual environment
-5. Reruns your code with the dependencies available
-6. Cleans up the virtual environment when finished
+1. Create a virtual environment with all your required dependencies:
+   ```bash
+   python -m venv /path/to/your/virtualenv
+   source /path/to/your/virtualenv/bin/activate  # On Unix/Mac
+   # Or on Windows:
+   # \path\to\your\virtualenv\Scripts\activate
+   
+   pip install pandas matplotlib numpy  # Install your dependencies
+   ```
 
-For example:
+2. When starting the MCP server, specify the path to this virtual environment:
+   ```bash
+   deno run -A jsr:@changhc/mcp-run-python-local stdio --venv /path/to/your/virtualenv
+   ```
 
-```python
-import pandas as pd  # pandas will be automatically installed if missing
-
-df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-print(df)
-```
-
-## How It Works
-
-This server creates a new Python virtual environment for each execution request:
-
-1. When you call `run_python_code` or `run_python_file`, the server:
-   - Creates a fresh virtual environment for this specific execution
-   - Executes your code in this environment
-   - If a `ModuleNotFoundError` occurs, it installs the missing package
-   - Reruns your code until all dependencies are satisfied or max retries reached
-   - Automatically cleans up the virtual environment when done
-
-This approach ensures:
-- Complete isolation between runs
-- No conflicts with system packages
-- No permission issues with package installation
-- Consistent behavior regardless of previous runs
+3. The server will now use the Python interpreter from this virtual environment, with all its pre-installed packages.
 
 ## Security Considerations
 
@@ -144,8 +128,7 @@ This approach ensures:
 
 1. The Python code has full access to any files and resources available to the user running the server
 2. The virtual filesystem mapping provides convenience but not security isolation
-3. While each execution uses a separate virtual environment, this is for dependency management, not security
-4. You should only use this with trusted AI systems and in controlled environments
+3. You should only use this with trusted AI systems and in controlled environments
 
 Do not expose this server to untrusted inputs or to the public internet.
 
@@ -154,8 +137,6 @@ Do not expose this server to untrusted inputs or to the public internet.
 Here's an example of code that creates a plot and saves it to the virtual mount point:
 
 ```python
-# Missing packages like matplotlib and numpy will be automatically installed
-
 import numpy as np
 import matplotlib.pyplot as plt
 

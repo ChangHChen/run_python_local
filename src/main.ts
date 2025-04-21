@@ -5,18 +5,20 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.93';
+const VERSION = '0.0.94';
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
   mountPoint: string;  // Virtual path (e.g., /working)
   localPath: string;   // Real path on the machine (e.g., /home/user/project/temp)
+  venvPath: string | null;  // Path to the existing virtual environment
 }
 
 // Default to a temp directory if no configuration is provided
 const defaultConfig: FileSystemConfig = {
   mountPoint: '/working',
-  localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })
+  localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' }),
+  venvPath: null  // Default to null (will use system Python if not specified)
 };
 
 let fsConfig: FileSystemConfig = defaultConfig;
@@ -54,228 +56,22 @@ function replaceVirtualPaths(code: string): string {
   );
 }
 
-// Create a virtual environment
-async function createVirtualEnv(envPath: string, log: (level: LoggingLevel, data: string) => void): Promise<boolean> {
-  try {
-    log('info', `Creating Python virtual environment at: ${envPath}`);
-    
-    const command = new Deno.Command("python", {
-      args: ["-m", "venv", envPath],
-      stdout: "piped",
-      stderr: "piped",
-    });
-    
-    const { code, stdout, stderr } = await command.output();
-    
-    const textDecoder = new TextDecoder();
-    const stdoutText = textDecoder.decode(stdout);
-    const stderrText = textDecoder.decode(stderr);
-    
-    if (stdoutText) log('info', stdoutText);
-    if (stderrText) log('warning', stderrText);
-    
-    if (code === 0) {
-      log('info', `Successfully created virtual environment at: ${envPath}`);
-      return true;
-    } else {
-      log('error', `Failed to create virtual environment, exit code: ${code}`);
-      return false;
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log('error', `Error creating virtual environment: ${errorMessage}`);
-    return false;
-  }
-}
-
-// Get the Python executable path from the virtual environment
-function getVenvPythonPath(envPath: string): string {
-  // Detect OS to use the correct path
-  const isWindows = Deno.build.os === "windows";
-  return isWindows 
-    ? `${envPath}\\Scripts\\python.exe`
-    : `${envPath}/bin/python`;
-}
-
-// Get the pip executable path from the virtual environment
-function getVenvPipPath(envPath: string): string {
-  // Detect OS to use the correct path
-  const isWindows = Deno.build.os === "windows";
-  return isWindows 
-    ? `${envPath}\\Scripts\\pip.exe`
-    : `${envPath}/bin/pip`;
-}
-
-// Install a package in the virtual environment
-async function installPackageInVenv(packageName: string, venvPath: string, log: (level: LoggingLevel, data: string) => void): Promise<boolean> {
-  try {
-    const pipPath = getVenvPipPath(venvPath);
-    log('info', `Installing package ${packageName} in virtual environment using ${pipPath}`);
-    
-    const command = new Deno.Command(pipPath, {
-      args: ["install", packageName],
-      stdout: "piped",
-      stderr: "piped",
-    });
-    
-    const { code, stdout, stderr } = await command.output();
-    
-    const textDecoder = new TextDecoder();
-    const stdoutText = textDecoder.decode(stdout);
-    const stderrText = textDecoder.decode(stderr);
-    
-    if (stdoutText) log('info', stdoutText);
-    if (stderrText) log('warning', stderrText);
-    
-    if (code === 0) {
-      log('info', `Successfully installed package: ${packageName}`);
-      return true;
-    } else {
-      log('error', `Failed to install package ${packageName}, exit code: ${code}`);
-      return false;
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log('error', `Error installing package ${packageName}: ${errorMessage}`);
-    return false;
-  }
-}
-
-// Clean up the virtual environment directory
-async function cleanupVirtualEnv(envPath: string, log: (level: LoggingLevel, data: string) => void): Promise<void> {
-  try {
-    log('info', `Cleaning up virtual environment at: ${envPath}`);
-    await Deno.remove(envPath, { recursive: true });
-    log('info', `Successfully removed virtual environment`);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log('warning', `Failed to clean up virtual environment: ${errorMessage}`);
-  }
-}
-
-// Extract missing module name from Python error
-function extractMissingModule(errorText: string): string | null {
-  const moduleErrorRegex = /ModuleNotFoundError: No module named ['"]([^'"]+)['"]/;
-  const match = errorText.match(moduleErrorRegex);
-  
-  if (match && match[1]) {
-    return match[1];
+// Get the Python executable path from the virtual environment or use system Python
+function getPythonPath(): string {
+  // If venvPath is provided, use Python from that environment
+  if (fsConfig.venvPath) {
+    // Detect OS to use the correct path
+    const isWindows = Deno.build.os === "windows";
+    return isWindows 
+      ? `${fsConfig.venvPath}\\Scripts\\python.exe`
+      : `${fsConfig.venvPath}/bin/python`;
   }
   
-  return null;
+  // Otherwise use system Python
+  return "python";
 }
 
-// Run Python code with auto-installation of dependencies in a virtual environment
-async function runPythonWithAutoInstall(
-  pythonCode: string, 
-  tempFilePath: string, 
-  cwd: string,
-  log: (level: LoggingLevel, data: string) => void,
-  maxRetries = 5
-): Promise<RunResult> {
-  // Create a unique virtual environment for this run
-  const venvPath = `${cwd}/_venv_${Date.now()}`;
-  let venvCreated = false;
-  const installedPackages = new Set<string>();
-  
-  try {
-    // Create virtual environment
-    venvCreated = await createVirtualEnv(venvPath, log);
-    if (!venvCreated) {
-      return {
-        status: 'error',
-        dependencies: Array.from(installedPackages),
-        output: [],
-        error: 'Failed to create Python virtual environment'
-      };
-    }
-    
-    // Get Python path from the virtual environment
-    const pythonPath = getVenvPythonPath(venvPath);
-    let attemptCount = 0;
-    let currentCode = 0;
-    let currentOutput: string[] = [];
-    let currentError = '';
-    
-    // Loop for handling missing dependencies
-    while (attemptCount < maxRetries) {
-      attemptCount++;
-      
-      // Run the Python code with the virtual environment
-      log('info', `Attempt ${attemptCount}: Running Python code with virtual environment Python: ${pythonPath}`);
-      const command = new Deno.Command(pythonPath, {
-        args: [tempFilePath],
-        stdout: "piped",
-        stderr: "piped",
-        cwd: cwd
-      });
-      
-      const result = await command.output();
-      
-      const textDecoder = new TextDecoder();
-      currentOutput = textDecoder.decode(result.stdout).split('\n');
-      currentError = textDecoder.decode(result.stderr);
-      currentCode = result.code;
-      
-      if (currentCode === 0) {
-        // Success! Return the result
-        return {
-          status: 'success',
-          dependencies: Array.from(installedPackages),
-          output: currentOutput,
-          error: currentError ? currentError : null
-        };
-      } else {
-        // Check if it's a missing module error
-        const missingModule = extractMissingModule(currentError);
-        
-        if (missingModule && !installedPackages.has(missingModule)) {
-          log('info', `Detected missing module: ${missingModule}`);
-          
-          // Attempt to install the missing package in the virtual environment
-          const success = await installPackageInVenv(missingModule, venvPath, log);
-          
-          if (success) {
-            installedPackages.add(missingModule);
-            log('info', `Successfully installed ${missingModule}, continuing to next attempt`);
-            // Continue to the next iteration of the while loop
-            continue;
-          } else {
-            log('error', `Failed to install dependency: ${missingModule}`);
-            break; // Exit the loop if we can't install the dependency
-          }
-        } else {
-          // Not a missing module error or we've already tried to install this module
-          log('info', `Error is not a missing module or module already installed`);
-          break;
-        }
-      }
-    }
-    
-    // If we get here, we've either exhausted our retries or hit a non-dependency error
-    return {
-      status: 'error',
-      dependencies: Array.from(installedPackages),
-      output: currentOutput,
-      error: currentError || `Process exited with code ${currentCode}`
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      status: 'error',
-      dependencies: Array.from(installedPackages),
-      output: [],
-      error: errorMessage
-    };
-  } finally {
-    // Clean up the virtual environment regardless of success or failure
-    if (venvCreated) {
-      await cleanupVirtualEnv(venvPath, log);
-    }
-  }
-}
-
-// Run Python code in a virtual environment
+// Run Python code using the specified or system Python
 async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data: string) => void): Promise<RunResult> {
   try {
     // Ensure the mount directory exists
@@ -288,14 +84,24 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     const tempFilePath = `${fsConfig.localPath}/_temp_${Date.now()}.py`;
     await Deno.writeTextFile(tempFilePath, processedCode);
     
-    // Run the code in a virtual environment with auto-installation of any missing dependencies
-    log('info', `Running Python code from ${tempFilePath} in a virtual environment`);
-    const result = await runPythonWithAutoInstall(
-      processedCode, 
-      tempFilePath, 
-      fsConfig.localPath, 
-      log
-    );
+    // Get the Python path (from venv or system)
+    const pythonPath = getPythonPath();
+    
+    // Run the Python code
+    log('info', `Running Python code from ${tempFilePath} using Python: ${pythonPath}`);
+    
+    const command = new Deno.Command(pythonPath, {
+      args: [tempFilePath],
+      stdout: "piped",
+      stderr: "piped",
+      cwd: fsConfig.localPath
+    });
+    
+    const result = await command.output();
+    
+    const textDecoder = new TextDecoder();
+    const output = textDecoder.decode(result.stdout).split('\n');
+    const error = textDecoder.decode(result.stderr);
     
     // Clean up the temporary file
     try {
@@ -305,19 +111,31 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       log('warning', `Failed to clean up temporary file: ${errorMessage}`);
     }
     
-    return result;
+    // Return the result
+    if (result.code === 0) {
+      return {
+        status: 'success',
+        output: output,
+        error: error ? error : null
+      };
+    } else {
+      return {
+        status: 'error',
+        output: output,
+        error: error || `Process exited with code ${result.code}`
+      };
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       status: 'error',
       error: errorMessage,
-      output: [],
-      dependencies: []
+      output: []
     };
   }
 }
 
-// Run a Python file in a virtual environment
+// Run a Python file using the specified or system Python
 async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: string) => void): Promise<RunResult> {
   try {
     // Convert virtual path to local path
@@ -330,25 +148,45 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
       throw new Error(`File ${filePath} does not exist`);
     }
     
-    // Read the file content
-    const pythonCode = await Deno.readTextFile(localFilePath);
+    // Get the Python path (from venv or system)
+    const pythonPath = getPythonPath();
     
-    // Run the Python file in a virtual environment with auto-installation of any missing dependencies
-    log('info', `Running Python file: ${localFilePath} in a virtual environment`);
+    // Run the Python file
+    log('info', `Running Python file: ${localFilePath} using Python: ${pythonPath}`);
     
-    return await runPythonWithAutoInstall(
-      pythonCode, 
-      localFilePath, 
-      fsConfig.localPath, 
-      log
-    );
+    const command = new Deno.Command(pythonPath, {
+      args: [localFilePath],
+      stdout: "piped",
+      stderr: "piped",
+      cwd: fsConfig.localPath
+    });
+    
+    const result = await command.output();
+    
+    const textDecoder = new TextDecoder();
+    const output = textDecoder.decode(result.stdout).split('\n');
+    const error = textDecoder.decode(result.stderr);
+    
+    // Return the result
+    if (result.code === 0) {
+      return {
+        status: 'success',
+        output: output,
+        error: error ? error : null
+      };
+    } else {
+      return {
+        status: 'error',
+        output: output,
+        error: error || `Process exited with code ${result.code}`
+      };
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       status: 'error',
       error: errorMessage,
-      output: [],
-      dependencies: []
+      output: []
     };
   }
 }
@@ -356,10 +194,6 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
 // Format result as XML
 function asXml(result: RunResult): string {
   const xml = [`<status>${result.status}</status>`];
-  
-  if (result.dependencies?.length) {
-    xml.push(`<dependencies>${JSON.stringify(result.dependencies)}</dependencies>`);
-  }
   
   if (result.output?.length) {
     xml.push('<output>');
@@ -393,7 +227,7 @@ function createServer(): McpServer {
       version: VERSION,
     },
     {
-      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount point (e.g., /working/). Missing dependencies will be automatically detected and installed using isolated virtual environments.',
+      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount point (e.g., /working/). The code will be executed using the specified virtual environment or system Python.',
       capabilities: {
         logging: {},
       },
@@ -402,13 +236,11 @@ function createServer(): McpServer {
 
   const toolDescription = `Tool to execute Python code directly on the local machine.
   
-The code will be executed in an isolated Python virtual environment.
-Missing dependencies will be automatically detected and installed.`;
+The code will be executed using the specified virtual environment or system Python.`;
 
   const fileToolDescription = `Tool to execute a Python file on the local machine.
   
-The file will be executed in an isolated Python virtual environment.
-Missing dependencies will be automatically detected and installed.`;
+The file will be executed using the specified virtual environment or system Python.`;
 
   let setLogLevel: LoggingLevel = 'emergency';
 
@@ -540,7 +372,6 @@ async function runStdio() {
 // Define the RunResult interface
 interface RunResult {
   status: 'success' | 'error';
-  dependencies: string[];
   output: string[];
   error: string | null;
 }
@@ -567,7 +398,8 @@ Usage: deno run -A jsr:@changhc/mcp-run-python-local [stdio|sse|warmup] [options
 options:
   --port <port>   Port to run the SSE server on (default: 3001)
   --mount <path>  Virtual path for the mount point (default: /working)
-  --path <path>   Local path to map from the mount point (default: ${Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })})`,
+  --path <path>   Local path to map from the mount point (default: ${Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })})
+  --venv <path>   Path to an existing Python virtual environment to use (default: uses system Python)`,
   );
 }
 
@@ -606,18 +438,20 @@ export async function main() {
   
   if (args.length >= 1) {
     const flags = parseArgs(Deno.args, {
-      string: ['port', 'mount', 'path'],
+      string: ['port', 'mount', 'path', 'venv'],
       default: { 
         port: '3001',
         mount: defaultConfig.mountPoint,
-        path: defaultConfig.localPath
+        path: defaultConfig.localPath,
+        venv: null  // Default to null (will use system Python)
       },
     });
     
     // Set up file system config
     fsConfig = {
       mountPoint: flags.mount,
-      localPath: flags.path
+      localPath: flags.path,
+      venvPath: flags.venv
     };
     
     if (args[0] === 'stdio') {
