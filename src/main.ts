@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.92';
+const VERSION = '0.0.93';
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
@@ -15,7 +15,7 @@ interface FileSystemConfig {
 
 // Default to a temp directory if no configuration is provided
 const defaultConfig: FileSystemConfig = {
-  mountPoint: '/working_space',
+  mountPoint: '/working',
   localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })
 };
 
@@ -33,19 +33,6 @@ async function ensureMountDirectoryExists() {
       throw error;
     }
   }
-}
-
-async function runCommandWithTimeout(
-  command: Deno.Command, 
-  timeoutMs: number = 60000
-): Promise<Deno.CommandOutput> {
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Command timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-  
-  const commandPromise = command.output();
-  
-  return Promise.race([commandPromise, timeoutPromise]) as Promise<Deno.CommandOutput>;
 }
 
 // Convert a virtual path to a local filesystem path
@@ -78,7 +65,7 @@ async function createVirtualEnv(envPath: string, log: (level: LoggingLevel, data
       stderr: "piped",
     });
     
-    const { code, stdout, stderr } = await runCommandWithTimeout(command, 60000);
+    const { code, stdout, stderr } = await command.output();
     
     const textDecoder = new TextDecoder();
     const stdoutText = textDecoder.decode(stdout);
@@ -131,7 +118,7 @@ async function installPackageInVenv(packageName: string, venvPath: string, log: 
       stderr: "piped",
     });
     
-    const { code, stdout, stderr } = await runCommandWithTimeout(command, 60000);
+    const { code, stdout, stderr } = await command.output();
     
     const textDecoder = new TextDecoder();
     const stdoutText = textDecoder.decode(stdout);
@@ -209,16 +196,11 @@ async function runPythonWithAutoInstall(
     let currentCode = 0;
     let currentOutput: string[] = [];
     let currentError = '';
-    let lastProgressUpdate = Date.now();
-    const PROGRESS_INTERVAL = 5000;
+    
     // Loop for handling missing dependencies
     while (attemptCount < maxRetries) {
       attemptCount++;
-      const currentTime = Date.now();
-      if (currentTime - lastProgressUpdate > PROGRESS_INTERVAL) {
-        log('info', `Still working... Installing dependencies...`);
-        lastProgressUpdate = currentTime;
-      }
+      
       // Run the Python code with the virtual environment
       log('info', `Attempt ${attemptCount}: Running Python code with virtual environment Python: ${pythonPath}`);
       const command = new Deno.Command(pythonPath, {
@@ -228,7 +210,7 @@ async function runPythonWithAutoInstall(
         cwd: cwd
       });
       
-      const result = await runCommandWithTimeout(command, 60000);
+      const result = await command.output();
       
       const textDecoder = new TextDecoder();
       currentOutput = textDecoder.decode(result.stdout).split('\n');
