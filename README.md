@@ -1,6 +1,6 @@
 # MCP Run Python Local
 
-A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment. This project is inspired by and based on Pydantic AI's Run Python MCP (which uses Pyodide), but runs Python code natively on your local machine instead of in a browser-based sandbox.
+A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment. This project is inspired by and based on [Pydantic AI's Run Python MCP](https://ai.pydantic.dev/mcp/run-python/) (which uses Pyodide), but runs Python code natively on your local machine instead of in a browser-based sandbox.
 
 ## Features
 
@@ -12,7 +12,7 @@ A Model Context Protocol (MCP) server for running Python code directly on the lo
 - **Auto-install Python packages** when needed
 - Similar interface to the Pyodide-based MCP Run Python server
 
-## Key Differences from Pydantic AI's Run Python MCP
+## Key Differences from [Pydantic AI's Run Python MCP](https://ai.pydantic.dev/mcp/run-python/)
 
 Unlike the Pyodide-based Run Python MCP server from Pydantic AI, this server:
 
