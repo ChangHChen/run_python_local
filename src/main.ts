@@ -126,7 +126,6 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
         output: output.map(line => replaceLocalPaths(line)),
         error: error ? replaceLocalPaths(error) : null
       };
-    }
     } else {
       return {
         status: 'error',
@@ -183,7 +182,6 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
         output: output.map(line => replaceLocalPaths(line)),
         error: error ? replaceLocalPaths(error) : null
       };
-    }
     } else {
       return {
         status: 'error',
