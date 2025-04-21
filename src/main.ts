@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.96';
+const VERSION = '0.0.97';
 
 function replaceLocalPaths(output: string): string {
   // Replace all occurrences of the local path with the mount point
@@ -30,6 +30,25 @@ const defaultConfig: FileSystemConfig = {
 };
 
 let fsConfig: FileSystemConfig = defaultConfig;
+
+// Parse Docker-style mount argument
+function parseMountArg(mountArg: string): { localPath: string, mountPoint: string } {
+  // Split by colon to get local path and mount point
+  const parts = mountArg.split(':');
+  
+  if (parts.length !== 2) {
+    throw new Error('Invalid mount format. Expected format: localPath:mountPoint');
+  }
+  
+  const [localPath, mountPoint] = parts;
+  
+  // Validate paths
+  if (!localPath || !mountPoint) {
+    throw new Error('Both local path and mount point must be specified');
+  }
+  
+  return { localPath, mountPoint };
+}
 
 // Create the mount directory if it doesn't exist
 async function ensureMountDirectoryExists() {
@@ -404,10 +423,9 @@ Invalid arguments.
 Usage: deno run -A jsr:@changhc/mcp-run-python-local [stdio|sse|warmup] [options]
 
 options:
-  --port <port>   Port to run the SSE server on (default: 3001)
-  --mount <path>  Virtual path for the mount point (default: /working)
-  --path <path>   Local path to map from the mount point (default: ${Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })})
-  --venv <path>   Path to an existing Python virtual environment to use (default: uses system Python)`,
+  --port <port>    Port to run the SSE server on (default: 3001)
+  --mount <path>   Local path and mount point in format localPath:mountPoint (default: ${defaultConfig.localPath}:${defaultConfig.mountPoint})
+  --venv <path>    Path to an existing Python virtual environment to use (default: uses system Python)`,
   );
 }
 
@@ -446,21 +464,29 @@ export async function main() {
   
   if (args.length >= 1) {
     const flags = parseArgs(Deno.args, {
-      string: ['port', 'mount', 'path', 'venv'],
+      string: ['port', 'mount', 'venv'],
       default: { 
         port: '3001',
-        mount: defaultConfig.mountPoint,
-        path: defaultConfig.localPath,
+        mount: `${defaultConfig.localPath}:${defaultConfig.mountPoint}`,
         venv: null  // Default to null (will use system Python)
       },
     });
     
-    // Set up file system config
-    fsConfig = {
-      mountPoint: flags.mount,
-      localPath: flags.path,
-      venvPath: flags.venv
-    };
+    // Parse the Docker-style mount format
+    try {
+      const { localPath, mountPoint } = parseMountArg(flags.mount);
+      
+      // Set up file system config
+      fsConfig = {
+        mountPoint,
+        localPath,
+        venvPath: flags.venv
+      };
+    } catch (error) {
+      console.error(`Error parsing mount argument: ${error.message}`);
+      printUsage();
+      Deno.exit(1);
+    }
     
     if (args[0] === 'stdio') {
       await runStdio();

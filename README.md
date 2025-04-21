@@ -39,13 +39,13 @@ irm https://deno.land/install.ps1 | iex
 To run with stdio transport (for local subprocess usage):
 
 ```bash
-deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /working_space --path /path/to/your/local/directory --venv /path/to/your/virtualenv
+deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /path/to/your/local/directory:/working_space --venv /path/to/your/virtualenv
 ```
 
 To run as an HTTP server with SSE transport:
 
 ```bash
-deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /working_space --path /path/to/your/local/directory --venv /path/to/your/virtualenv
+deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /path/to/your/local/directory:/working_space --venv /path/to/your/virtualenv
 ```
 
 To test if everything is working correctly (does a basic Python test):
@@ -57,8 +57,7 @@ deno run -A jsr:@changhc/mcp-run-python-local warmup
 ### Options
 
 - `--port`: Port to run the SSE server on (default: 3001)
-- `--mount`: Virtual path prefix for file access (default: /working)
-- `--path`: Local filesystem path that will be mapped to the mount point (default: a temp directory)
+- `--mount`: Mount binding in Docker-style format `localPath:mountPoint` (default: temp directory:/working)
 - `--venv`: Path to an existing Python virtual environment to use (default: uses system Python)
 
 ## Using with PydanticAI
@@ -82,8 +81,7 @@ server = MCPServerStdio('deno',
         '-A',
         'jsr:@changhc/mcp-run-python-local',
         'stdio',
-        '--mount', '/working',
-        '--path', '/path/to/your/local/directory',
+        '--mount', '/path/to/your/local/directory:/working',
         '--venv', '/path/to/your/virtualenv'  # Specify your virtual environment
     ])
 
