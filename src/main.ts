@@ -1,5 +1,3 @@
-// File: src/main.ts
-
 import { parseArgs } from '@std/cli/parse-args';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -7,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.1';
+const VERSION = '0.0.8';
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
@@ -54,7 +52,8 @@ function replaceVirtualPaths(code: string): string {
     fsConfig.localPath
   );
 }
-// Detect and install Python dependencies from code or file
+
+// Detect and install Python dependencies from code or file (using PEP 723 format)
 async function detectAndInstallDependencies(pythonCode: string, log: (level: LoggingLevel, data: string) => void): Promise<string[]> {
   // Check for PEP 723 dependencies
   const pep723Regex = /# \/\/\/ script\s(?:#.*\s)*?# dependencies = \[(.*?)\]\s(?:#.*\s)*?# \/\/\//s;
@@ -75,7 +74,6 @@ async function detectAndInstallDependencies(pythonCode: string, log: (level: Log
         
         try {
           // Install dependencies using pip
-          const cmd = ["pip", "install", ...dependencies];
           log('info', `Running: pip install ${dependencies.join(' ')}`);
           
           const command = new Deno.Command("pip", {
@@ -115,6 +113,126 @@ async function detectAndInstallDependencies(pythonCode: string, log: (level: Log
   return [];
 }
 
+// Install a missing package using pip
+async function installPackage(packageName: string, log: (level: LoggingLevel, data: string) => void): Promise<boolean> {
+  try {
+    log('info', `Attempting to install missing package: ${packageName}`);
+    
+    const command = new Deno.Command("pip", {
+      args: ["install", packageName],
+      stdout: "piped",
+      stderr: "piped",
+    });
+    
+    const { code, stdout, stderr } = await command.output();
+    
+    const textDecoder = new TextDecoder();
+    const stdoutText = textDecoder.decode(stdout);
+    const stderrText = textDecoder.decode(stderr);
+    
+    log('info', stdoutText);
+    if (stderrText) log('warning', stderrText);
+    
+    if (code === 0) {
+      log('info', `Successfully installed package: ${packageName}`);
+      return true;
+    } else {
+      log('error', `Failed to install package ${packageName} with exit code ${code}`);
+      return false;
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log('error', `Error installing package ${packageName}: ${errorMessage}`);
+    return false;
+  }
+}
+
+// Extract missing module name from Python error
+function extractMissingModule(errorText: string): string | null {
+  const moduleErrorRegex = /ModuleNotFoundError: No module named ['"]([^'"]+)['"]/;
+  const match = errorText.match(moduleErrorRegex);
+  
+  if (match && match[1]) {
+    return match[1];
+  }
+  
+  return null;
+}
+
+// Run Python code with auto-installation of dependencies
+async function runPythonWithAutoInstall(
+  pythonCode: string, 
+  tempFilePath: string, 
+  cwd: string,
+  installedPackages: Set<string>,
+  log: (level: LoggingLevel, data: string) => void,
+  maxRetries = 5
+): Promise<RunResult> {
+  try {
+    // First try running the code
+    const command = new Deno.Command("python", {
+      args: [tempFilePath],
+      stdout: "piped",
+      stderr: "piped",
+      cwd: cwd
+    });
+    
+    const { code, stdout, stderr } = await command.output();
+    
+    const textDecoder = new TextDecoder();
+    const stdoutText = textDecoder.decode(stdout).split('\n');
+    const stderrText = textDecoder.decode(stderr);
+    
+    if (code === 0) {
+      return {
+        status: 'success',
+        dependencies: Array.from(installedPackages),
+        output: stdoutText,
+        error: stderrText ? stderrText : null
+      };
+    } else {
+      // Check if it's a missing module error
+      const missingModule = extractMissingModule(stderrText);
+      
+      if (missingModule && maxRetries > 0 && !installedPackages.has(missingModule)) {
+        log('info', `Detected missing module: ${missingModule}`);
+        
+        // Attempt to install the missing package
+        const success = await installPackage(missingModule, log);
+        
+        if (success) {
+          installedPackages.add(missingModule);
+          // Retry running the code with the new package installed
+          return runPythonWithAutoInstall(
+            pythonCode, 
+            tempFilePath, 
+            cwd, 
+            installedPackages, 
+            log, 
+            maxRetries - 1
+          );
+        }
+      }
+      
+      // Either not a missing module error, or installation failed, or too many retries
+      return {
+        status: 'error',
+        dependencies: Array.from(installedPackages),
+        output: stdoutText,
+        error: stderrText || `Process exited with code ${code}`
+      };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      status: 'error',
+      dependencies: Array.from(installedPackages),
+      output: [],
+      error: errorMessage
+    };
+  }
+}
+
 // Run Python code
 async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data: string) => void): Promise<RunResult> {
   try {
@@ -128,24 +246,20 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     const tempFilePath = `${fsConfig.localPath}/_temp_${Date.now()}.py`;
     await Deno.writeTextFile(tempFilePath, processedCode);
     
-    // Detect and install dependencies
-    const dependencies = await detectAndInstallDependencies(processedCode, log);
+    // Check for explicit dependencies first (PEP 723)
+    const declaredDependencies = new Set<string>(
+      await detectAndInstallDependencies(processedCode, log)
+    );
     
-    // Run the Python code
+    // Run the code with auto-installation of any missing dependencies
     log('info', `Running Python code from ${tempFilePath}`);
-    
-    const command = new Deno.Command("python", {
-      args: [tempFilePath],
-      stdout: "piped",
-      stderr: "piped",
-      cwd: fsConfig.localPath  // Set working directory to the mapped local path
-    });
-    
-    const { code, stdout, stderr } = await command.output();
-    
-    const textDecoder = new TextDecoder();
-    const stdoutText = textDecoder.decode(stdout).split('\n');
-    const stderrText = textDecoder.decode(stderr);
+    const result = await runPythonWithAutoInstall(
+      processedCode, 
+      tempFilePath, 
+      fsConfig.localPath, 
+      declaredDependencies, 
+      log
+    );
     
     // Clean up the temporary file
     try {
@@ -155,21 +269,7 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       log('warning', `Failed to clean up temporary file: ${errorMessage}`);
     }
     
-    if (code === 0) {
-      return {
-        status: 'success',
-        dependencies,
-        output: stdoutText,
-        error: stderrText ? stderrText : null
-      };
-    } else {
-      return {
-        status: 'error',
-        dependencies,
-        output: stdoutText,
-        error: stderrText || `Process exited with code ${code}`
-      };
-    }
+    return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
@@ -197,41 +297,21 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     // Read the file content to detect dependencies
     const pythonCode = await Deno.readTextFile(localFilePath);
     
-    // Detect and install dependencies
-    const dependencies = await detectAndInstallDependencies(pythonCode, log);
+    // Check for explicit dependencies first (PEP 723)
+    const declaredDependencies = new Set<string>(
+      await detectAndInstallDependencies(pythonCode, log)
+    );
     
-    // Run the Python file
+    // Run the Python file with auto-installation of any missing dependencies
     log('info', `Running Python file: ${localFilePath}`);
     
-
-    const command = new Deno.Command("python", {
-      args: [localFilePath],
-      stdout: "piped", 
-      stderr: "piped",
-      cwd: fsConfig.localPath // Set working directory to the mapped local path
-    });
-    
-    const { code, stdout, stderr } = await command.output();
-    
-    const textDecoder = new TextDecoder();
-    const stdoutText = textDecoder.decode(stdout).split('\n');
-    const stderrText = textDecoder.decode(stderr);
-    
-    if (code === 0) {
-      return {
-        status: 'success',
-        dependencies,
-        output: stdoutText,
-        error: stderrText ? stderrText : null
-      };
-    } else {
-      return {
-        status: 'error',
-        dependencies,
-        output: stdoutText,
-        error: stderrText || `Process exited with code ${code}`
-      };
-    }
+    return await runPythonWithAutoInstall(
+      pythonCode, 
+      localFilePath, 
+      fsConfig.localPath, 
+      declaredDependencies, 
+      log
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
@@ -283,7 +363,7 @@ function createServer(): McpServer {
       version: VERSION,
     },
     {
-      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount point (e.g., /working/).',
+      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount point (e.g., /working/). Missing dependencies will be automatically detected and installed.',
       capabilities: {
         logging: {},
       },
@@ -292,9 +372,12 @@ function createServer(): McpServer {
 
   const toolDescription = `Tool to execute Python code directly on the local machine.
   
-The code will be executed with the locally installed Python interpreter.`;
+The code will be executed with the locally installed Python interpreter.
+Missing dependencies will be automatically detected and installed.`;
 
-  const fileToolDescription = `Tool to execute a Python file on the local machine.`;
+  const fileToolDescription = `Tool to execute a Python file on the local machine.
+  
+Missing dependencies will be automatically detected and installed.`;
 
   let setLogLevel: LoggingLevel = 'emergency';
 
@@ -448,7 +531,7 @@ function printUsage() {
     `\
 Invalid arguments.
 
-Usage: deno run -A jsr:@custom/mcp-run-python-local [stdio|sse|warmup] [options]
+Usage: deno run -A jsr:@changhc/mcp-run-python-local [stdio|sse|warmup] [options]
 
 options:
   --port <port>   Port to run the SSE server on (default: 3001)

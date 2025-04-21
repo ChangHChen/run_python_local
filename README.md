@@ -1,53 +1,14 @@
-# Technical Implementation
+# MCP Run Python Local
 
-The server is built using:
-
-1. **Deno Runtime**: A secure JavaScript runtime with TypeScript support
-2. **Model Context Protocol (MCP)**: For structured communication between AI models and external tools
-3. **Native Deno APIs**:
-   - `Deno.Command` for executing Python processes
-   - `Deno.serve` for the HTTP server (SSE transport)
-   - Standard file system operations
-
-When using the server:
-- It maps a virtual path (e.g., `/working`) to a local directory
-- Python code is executed with the local Python interpreter
-- Dependencies are installed using pip if specified in PEP 723 format
-- Results and errors are captured and formatted as XML# Development Instructions
-
-If you're developing this package locally and want to test it before publishing to JSR, you can use the included development script:
-
-```bash
-# Make the script executable
-chmod +x run_local.sh
-
-# Run in stdio mode with default mount point
-./run_local.sh stdio
-
-# Run in SSE mode with custom mount point and local path
-./run_local.sh sse /my-virtual-path /real/local/path
-```
-
-## Project Structure
-
-```
-mcp-run-python-local/
-├── deno.json            # Deno configuration
-├── run_local.sh         # Development helper script
-├── README.md            # Documentation
-└── src/
-    ├── main.ts          # Main implementation
-    └── polyfill.ts      # Compatibility layer
-```# MCP Run Python Local
-
-A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping.
+A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and automatic dependency installation.
 
 ## Features
 
 - Execute Python code directly on the local machine
 - Run Python files by path 
 - Map a virtual filesystem path to a local directory
-- Support for dependencies via PEP 723 metadata
+- **Automatic detection and installation of missing dependencies**
+- Support for explicit dependencies via PEP 723 metadata
 - Similar interface to the Pyodide-based MCP Run Python server
 
 ## Key Differences from MCP Run Python
@@ -57,7 +18,7 @@ Unlike the Pyodide-based MCP Run Python server, this server:
 1. Runs code directly on your local Python interpreter (not in a sandbox)
 2. Has full access to your local filesystem through a configurable mount point
 3. Can run existing Python files, not just code strings
-4. Installs dependencies using your system's pip
+4. Automatically detects and installs missing dependencies
 
 ## Usage
 
@@ -139,6 +100,31 @@ if __name__ == '__main__':
     asyncio.run(main())
 ```
 
+## Automatic Dependency Installation
+
+This server automatically detects and installs missing Python packages when they are imported in your code. For example:
+
+```python
+import pandas as pd  # pandas will be automatically installed if missing
+
+df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+print(df)
+```
+
+You can also explicitly declare dependencies using PEP 723 format:
+
+```python
+# /// script
+# dependencies = ['matplotlib', 'numpy', 'pandas']
+# ///
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+# Your code here
+```
+
 ## Security Considerations
 
 ⚠️ **WARNING**: This server executes Python code directly on your machine with the same permissions as the user running the server. This means:
@@ -154,9 +140,7 @@ Do not expose this server to untrusted inputs or to the public internet.
 Here's an example of code that creates a plot and saves it to the virtual mount point:
 
 ```python
-# /// script
-# dependencies = ['matplotlib', 'numpy']
-# ///
+# Missing packages like matplotlib and numpy will be automatically installed
 
 import numpy as np
 import matplotlib.pyplot as plt
