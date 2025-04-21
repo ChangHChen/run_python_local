@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 
 function replaceLocalPaths(output: string): string {
   // Sort mount points by specificity (longest local path first)
@@ -306,16 +306,16 @@ function createServer(): McpServer {
       version: VERSION,
     },
     {
-      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file.',
+      instructions: 'Call "run_python_code" to run Python code, or "run_python_file" to run a Python file.',
       capabilities: {
         logging: {},
       },
     },
   );
 
-  const toolDescription = `Tool to execute Python code directly on the local machine.`;
+  const toolDescription = `Tool to execute Python code.`;
 
-  const fileToolDescription = `Tool to execute a Python file on the local machine.`;
+  const fileToolDescription = `Tool to execute a Python file.`;
 
   let setLogLevel: LoggingLevel = 'emergency';
 
