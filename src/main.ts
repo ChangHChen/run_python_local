@@ -1,6 +1,5 @@
 // File: src/main.ts
 
-import './polyfill.ts';
 import { parseArgs } from '@std/cli/parse-args';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
