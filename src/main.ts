@@ -15,7 +15,7 @@ interface FileSystemConfig {
 
 // Default to a temp directory if no configuration is provided
 const defaultConfig: FileSystemConfig = {
-  mountPoint: '/working',
+  mountPoint: '/working_space',
   localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })
 };
 
@@ -33,6 +33,19 @@ async function ensureMountDirectoryExists() {
       throw error;
     }
   }
+}
+
+async function runCommandWithTimeout(
+  command: Deno.Command, 
+  timeoutMs: number = 60000
+): Promise<Deno.CommandOutput> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`Command timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  
+  const commandPromise = command.output();
+  
+  return Promise.race([commandPromise, timeoutPromise]) as Promise<Deno.CommandOutput>;
 }
 
 // Convert a virtual path to a local filesystem path
@@ -63,10 +76,9 @@ async function createVirtualEnv(envPath: string, log: (level: LoggingLevel, data
       args: ["-m", "venv", envPath],
       stdout: "piped",
       stderr: "piped",
-      timeout: 60000
     });
     
-    const { code, stdout, stderr } = await command.output();
+    const { code, stdout, stderr } = await runCommandWithTimeout(command, 60000);
     
     const textDecoder = new TextDecoder();
     const stdoutText = textDecoder.decode(stdout);
@@ -117,10 +129,9 @@ async function installPackageInVenv(packageName: string, venvPath: string, log: 
       args: ["install", packageName],
       stdout: "piped",
       stderr: "piped",
-      timeout: 60000
     });
     
-    const { code, stdout, stderr } = await command.output();
+    const { code, stdout, stderr } = await runCommandWithTimeout(command, 60000);
     
     const textDecoder = new TextDecoder();
     const stdoutText = textDecoder.decode(stdout);
@@ -209,11 +220,10 @@ async function runPythonWithAutoInstall(
         args: [tempFilePath],
         stdout: "piped",
         stderr: "piped",
-        cwd: cwd,
-        timeout: 60000
+        cwd: cwd
       });
       
-      const result = await command.output();
+      const result = await runCommandWithTimeout(command, 60000);
       
       const textDecoder = new TextDecoder();
       currentOutput = textDecoder.decode(result.stdout).split('\n');
