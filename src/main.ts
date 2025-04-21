@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.9';
+const VERSION = '0.0.91';
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
@@ -63,6 +63,7 @@ async function createVirtualEnv(envPath: string, log: (level: LoggingLevel, data
       args: ["-m", "venv", envPath],
       stdout: "piped",
       stderr: "piped",
+      timeout: 60000
     });
     
     const { code, stdout, stderr } = await command.output();
@@ -116,6 +117,7 @@ async function installPackageInVenv(packageName: string, venvPath: string, log: 
       args: ["install", packageName],
       stdout: "piped",
       stderr: "piped",
+      timeout: 60000
     });
     
     const { code, stdout, stderr } = await command.output();
@@ -207,7 +209,8 @@ async function runPythonWithAutoInstall(
         args: [tempFilePath],
         stdout: "piped",
         stderr: "piped",
-        cwd: cwd
+        cwd: cwd,
+        timeout: 60000
       });
       
       const result = await command.output();
