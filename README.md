@@ -1,6 +1,6 @@
 # MCP Run Python Local
 
-A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment. This project is inspired by and based on [Pydantic AI's Run Python MCP](https://ai.pydantic.dev/mcp/run-python/) (which uses Pyodide), but runs Python code natively on your local machine instead of in a browser-based sandbox.
+A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment. This project is inspired by and based on Pydantic AI's Run Python MCP (which uses Pyodide), but runs Python code natively on your local machine instead of in a browser-based sandbox.
 
 ## Features
 
@@ -12,7 +12,7 @@ A Model Context Protocol (MCP) server for running Python code directly on the lo
 - **Auto-install Python packages** when needed
 - Similar interface to the Pyodide-based MCP Run Python server
 
-## Key Differences from [Pydantic AI's Run Python MCP](https://ai.pydantic.dev/mcp/run-python/)
+## Key Differences from Pydantic AI's Run Python MCP
 
 Unlike the Pyodide-based Run Python MCP server from Pydantic AI, this server:
 
@@ -138,8 +138,7 @@ This MCP server provides the following tools:
 3. **install_python_package**: Install a Python package using pip
    ```
    Parameters:
-   - package_name: Name of the package to install
-   - version: (Optional) Specific version to install
+   - package_name: Name of the package to install (use package_name==version format to specify version)
    ```
 
 ## Using Multiple Mount Points
@@ -198,7 +197,7 @@ The server can automatically install Python packages when needed:
 
 1. If your code execution fails due to missing packages, the agent can detect this and install the required dependencies
 2. Packages are installed using pip in the specified virtual environment or system Python
-3. You can specify exact versions of packages to install when needed
+3. Use standard pip format (package_name==version) to specify exact versions
 
 Example of an agent using this capability:
 
@@ -209,6 +208,11 @@ Example of an agent using this capability:
 # The agent can then use the install_python_package tool
 result = await agent.use_tool('install_python_package', {
     'package_name': 'pandas'
+})
+
+# Or with a specific version
+result = await agent.use_tool('install_python_package', {
+    'package_name': 'pandas==2.0.3'
 })
 
 # Then retry the operation with pandas now installed

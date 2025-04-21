@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 
 function replaceLocalPaths(output: string): string {
   // Sort mount points by specificity (longest local path first)
@@ -373,12 +373,11 @@ The file will be executed using the specified virtual environment or system Pyth
   );
   server.tool(
     'install_python_package',
-    'Tool to install Python packages using pip.',
+    'Tool to install Python packages using pip in the specified virtual environment or system Python. Use package_name==version format to specify versions.',
     { 
-      package_name: z.string().describe('Python package name to install'),
-      version: z.string().optional().describe('Specific version to install (optional)')
+      package_name: z.string().describe('Python package name to install (use package_name==version format to specify version)')
     },
-    async ({ package_name, version }: { package_name: string, version?: string }) => {
+    async ({ package_name }: { package_name: string }) => {
       const logPromises: Promise<void>[] = [];
       const logger = (level: LoggingLevel, data: string) => {
         if (LogLevels.indexOf(level) >= LogLevels.indexOf(setLogLevel)) {
@@ -391,16 +390,9 @@ The file will be executed using the specified virtual environment or system Pyth
         const pythonPath = getPythonPath();
         
         // Construct the pip command
-        const pipArgs = ['-m', 'pip', 'install'];
+        const pipArgs = ['-m', 'pip', 'install', package_name];
         
-        // Add the package name and version if specified
-        if (version) {
-          pipArgs.push(`${package_name}==${version}`);
-        } else {
-          pipArgs.push(package_name);
-        }
-        
-        logger('info', `Installing Python package: ${package_name}${version ? ` version ${version}` : ''}`);
+        logger('info', `Installing Python package: ${package_name}`);
         
         // Run pip command
         const command = new Deno.Command(pythonPath, {
