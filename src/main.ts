@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.91';
+const VERSION = '0.0.92';
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
@@ -209,11 +209,16 @@ async function runPythonWithAutoInstall(
     let currentCode = 0;
     let currentOutput: string[] = [];
     let currentError = '';
-    
+    let lastProgressUpdate = Date.now();
+    const PROGRESS_INTERVAL = 5000;
     // Loop for handling missing dependencies
     while (attemptCount < maxRetries) {
       attemptCount++;
-      
+      const currentTime = Date.now();
+      if (currentTime - lastProgressUpdate > PROGRESS_INTERVAL) {
+        log('info', `Still working... Installing dependencies...`);
+        lastProgressUpdate = currentTime;
+      }
       // Run the Python code with the virtual environment
       log('info', `Attempt ${attemptCount}: Running Python code with virtual environment Python: ${pythonPath}`);
       const command = new Deno.Command(pythonPath, {
