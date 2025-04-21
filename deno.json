@@ -1,6 +1,6 @@
 {
     "name": "@changhc/mcp-run-python-local",
-    "version": "0.0.95",
+    "version": "0.0.96",
     "license": "MIT",
     "nodeModulesDir": "auto",
     "exports": {

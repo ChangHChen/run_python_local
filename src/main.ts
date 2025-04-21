@@ -5,7 +5,15 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.95';
+const VERSION = '0.0.96';
+
+function replaceLocalPaths(output: string): string {
+  // Replace all occurrences of the local path with the mount point
+  return output.replace(
+    new RegExp(fsConfig.localPath, 'g'),
+    fsConfig.mountPoint
+  );
+}
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
@@ -94,6 +102,7 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       args: [tempFilePath],
       stdout: "piped",
       stderr: "piped",
+      cwd: fsConfig.localPath
     });
     
     const result = await command.output();
@@ -114,9 +123,10 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     if (result.code === 0) {
       return {
         status: 'success',
-        output: output,
-        error: error ? error : null
+        output: output.map(line => replaceLocalPaths(line)),
+        error: error ? replaceLocalPaths(error) : null
       };
+    }
     } else {
       return {
         status: 'error',
@@ -157,6 +167,7 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
       args: [localFilePath],
       stdout: "piped",
       stderr: "piped",
+      cwd: fsConfig.localPath
     });
     
     const result = await command.output();
@@ -169,9 +180,10 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     if (result.code === 0) {
       return {
         status: 'success',
-        output: output,
-        error: error ? error : null
+        output: output.map(line => replaceLocalPaths(line)),
+        error: error ? replaceLocalPaths(error) : null
       };
+    }
     } else {
       return {
         status: 'error',
