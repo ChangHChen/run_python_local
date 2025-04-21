@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.98';
+const VERSION = '0.0.99';
 
 function replaceLocalPaths(output: string): string {
   // Sort mount points by specificity (longest local path first)
@@ -95,7 +95,12 @@ function virtualToLocalPath(virtualPath: string): string {
   
   // Check each mount point in order of specificity
   for (const mount of sortedMounts) {
-    if (virtualPath.startsWith(mount.mountPoint)) {
+    // Check if the virtual path exactly matches the mount point
+    if (virtualPath === mount.mountPoint) {
+      return mount.localPath;
+    }
+    // Check if the virtual path starts with the mount point followed by a path separator
+    if (virtualPath.startsWith(mount.mountPoint + '/')) {
       const relativePath = virtualPath.substring(mount.mountPoint.length);
       return `${mount.localPath}${relativePath}`;
     }
@@ -114,12 +119,17 @@ function replaceVirtualPaths(code: string): string {
   // Replace all occurrences of mount points with their local paths
   let result = code;
   for (const mount of sortedMounts) {
-    result = result.replace(
-      new RegExp(mount.mountPoint, 'g'), 
-      mount.localPath
-    );
+    // Create a regex that matches the mount point exactly or followed by a slash
+    // This ensures we only match complete path segments
+    const mountRegex = new RegExp(`${escapeRegExp(mount.mountPoint)}(?=/|$)`, 'g');
+    result = result.replace(mountRegex, mount.localPath);
   }
   return result;
+}
+
+// Helper function to escape special characters in strings used in regular expressions
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
 // Get the Python executable path from the virtual environment or use system Python
