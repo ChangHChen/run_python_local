@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 
 function replaceLocalPaths(output: string): string {
   // Sort mount points by specificity (longest local path first)
@@ -227,14 +227,24 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
       throw new Error(`File ${filePath} does not exist`);
     }
     
+    // Read the content of the Python file
+    const fileContent = await Deno.readTextFile(localFilePath);
+    
+    // Process the Python code to replace virtual paths with local paths
+    const processedCode = replaceVirtualPaths(fileContent);
+    
+    // Create a temporary file to hold the processed Python code in the main mount point
+    const tempFilePath = `${fsConfig.mounts[0].localPath}/_temp_${Date.now()}.py`;
+    await Deno.writeTextFile(tempFilePath, processedCode);
+    
     // Get the Python path (from venv or system)
     const pythonPath = getPythonPath();
     
     // Run the Python file with CWD set to the main mount point
-    log('info', `Running Python file: ${localFilePath} using Python: ${pythonPath}`);
+    log('info', `Running Python file: ${filePath} (processed to: ${tempFilePath}) using Python: ${pythonPath}`);
     
     const command = new Deno.Command(pythonPath, {
-      args: [localFilePath],
+      args: [tempFilePath],
       stdout: "piped",
       stderr: "piped",
       cwd: fsConfig.mounts[0].localPath // Use the main mount as cwd
@@ -245,6 +255,14 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     const textDecoder = new TextDecoder();
     const output = textDecoder.decode(result.stdout).split('\n');
     const error = textDecoder.decode(result.stderr);
+    
+    // Clean up the temporary file
+    try {
+      await Deno.remove(tempFilePath);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log('warning', `Failed to clean up temporary file: ${errorMessage}`);
+    }
     
     // Return the result
     if (result.code === 0) {
