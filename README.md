@@ -1,6 +1,6 @@
 # MCP Run Python Local
 
-A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment.
+A Model Context Protocol (MCP) server for running Python code directly on the local machine, with virtual filesystem mapping and the ability to use an existing virtual environment. This project is inspired by and based on [Pydantic AI's Run Python MCP](https://ai.pydantic.dev/mcp/run-python/) (which uses Pyodide), but runs Python code natively on your local machine instead of in a browser-based sandbox.
 
 ## Features
 
@@ -9,11 +9,12 @@ A Model Context Protocol (MCP) server for running Python code directly on the lo
 - **Multiple virtual filesystem mounts** to map different local directories
 - **Support for overlapping mount points** with more specific paths taking precedence
 - **Use an existing Python virtual environment** instead of creating new ones for each run
+- **Auto-install Python packages** when needed
 - Similar interface to the Pyodide-based MCP Run Python server
 
-## Key Differences from MCP Run Python
+## Key Differences from [Pydantic AI's Run Python MCP](https://ai.pydantic.dev/mcp/run-python/)
 
-Unlike the Pyodide-based MCP Run Python server, this server:
+Unlike the Pyodide-based Run Python MCP server from Pydantic AI, this server:
 
 1. Runs code directly on your local Python interpreter (not in a sandbox)
 2. Has full access to your local filesystem through configurable mount points
@@ -21,6 +22,7 @@ Unlike the Pyodide-based MCP Run Python server, this server:
 4. Can use an existing virtual environment with pre-installed dependencies
 5. Supports multiple mount points for more flexible file organization
 6. Handles overlapping mount points correctly (more specific paths take precedence)
+7. Can dynamically install Python packages when needed
 
 ## Usage
 
@@ -117,6 +119,29 @@ if __name__ == '__main__':
     asyncio.run(main())
 ```
 
+## Available Tools
+
+This MCP server provides the following tools:
+
+1. **run_python_code**: Execute Python code strings directly
+   ```
+   Parameters:
+   - python_code: String containing Python code to execute
+   ```
+
+2. **run_python_file**: Run a Python file by path
+   ```
+   Parameters:
+   - file_path: Path to the Python file to execute
+   ```
+
+3. **install_python_package**: Install a Python package using pip
+   ```
+   Parameters:
+   - package_name: Name of the package to install
+   - version: (Optional) Specific version to install
+   ```
+
 ## Using Multiple Mount Points
 
 This server supports multiple mount points, allowing you to create a more organized file structure:
@@ -165,6 +190,28 @@ plt.savefig('/output/my_plot.png')
 # Read configuration from the config directory
 with open('/config/settings.json', 'r') as f:
     config = json.load(f)
+```
+
+## Automatic Package Installation
+
+The server can automatically install Python packages when needed:
+
+1. If your code execution fails due to missing packages, the agent can detect this and install the required dependencies
+2. Packages are installed using pip in the specified virtual environment or system Python
+3. You can specify exact versions of packages to install when needed
+
+Example of an agent using this capability:
+
+```python
+# Assume the agent receives this error when trying to run code
+# ModuleNotFoundError: No module named 'pandas'
+
+# The agent can then use the install_python_package tool
+result = await agent.use_tool('install_python_package', {
+    'package_name': 'pandas'
+})
+
+# Then retry the operation with pandas now installed
 ```
 
 ## Using Existing Virtual Environments

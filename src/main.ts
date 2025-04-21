@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.99';
+const VERSION = '0.1.0';
 
 function replaceLocalPaths(output: string): string {
   // Sort mount points by specificity (longest local path first)
@@ -371,7 +371,91 @@ The file will be executed using the specified virtual environment or system Pyth
       };
     },
   );
-  
+  server.tool(
+    'install_python_package',
+    'Tool to install Python packages using pip.',
+    { 
+      package_name: z.string().describe('Python package name to install'),
+      version: z.string().optional().describe('Specific version to install (optional)')
+    },
+    async ({ package_name, version }: { package_name: string, version?: string }) => {
+      const logPromises: Promise<void>[] = [];
+      const logger = (level: LoggingLevel, data: string) => {
+        if (LogLevels.indexOf(level) >= LogLevels.indexOf(setLogLevel)) {
+          logPromises.push(server.server.sendLoggingMessage({ level, data }));
+        }
+      };
+      
+      try {
+        // Get the Python path (from venv or system)
+        const pythonPath = getPythonPath();
+        
+        // Construct the pip command
+        const pipArgs = ['-m', 'pip', 'install'];
+        
+        // Add the package name and version if specified
+        if (version) {
+          pipArgs.push(`${package_name}==${version}`);
+        } else {
+          pipArgs.push(package_name);
+        }
+        
+        logger('info', `Installing Python package: ${package_name}${version ? ` version ${version}` : ''}`);
+        
+        // Run pip command
+        const command = new Deno.Command(pythonPath, {
+          args: pipArgs,
+          stdout: "piped",
+          stderr: "piped"
+        });
+        
+        const result = await command.output();
+        
+        const textDecoder = new TextDecoder();
+        const output = textDecoder.decode(result.stdout).split('\n');
+        const error = textDecoder.decode(result.stderr);
+        
+        if (result.code === 0) {
+          await Promise.all(logPromises);
+          return {
+            content: [{ 
+              type: 'text', 
+              text: asXml({
+                status: 'success',
+                output: output.map(line => replaceLocalPaths(line)),
+                error: null
+              }) 
+            }],
+          };
+        } else {
+          await Promise.all(logPromises);
+          return {
+            content: [{ 
+              type: 'text', 
+              text: asXml({
+                status: 'error',
+                output: output.map(line => replaceLocalPaths(line)),
+                error: replaceLocalPaths(error) || `Process exited with code ${result.code}`
+              }) 
+            }],
+          };
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await Promise.all(logPromises);
+        return {
+          content: [{ 
+            type: 'text', 
+            text: asXml({
+              status: 'error',
+              output: [],
+              error: errorMessage
+            }) 
+          }],
+        };
+      }
+    },
+  );
   return server;
 }
 
