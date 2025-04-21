@@ -520,7 +520,7 @@ export async function main() {
     
     try {
       // Parse the multiple Docker-style mount formats
-      const mounts = parseMountArgs(flags.mount);
+      const mounts = parseMountArgs(flags.mount as string[]);
       
       // Set up file system config
       fsConfig = {
