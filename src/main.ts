@@ -483,7 +483,9 @@ export async function main() {
         venvPath: flags.venv
       };
     } catch (error) {
-      console.error(`Error parsing mount argument: ${error.message}`);
+      // Handle the error properly with type checking
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`Error parsing mount argument: ${errorMessage}`);
       printUsage();
       Deno.exit(1);
     }
