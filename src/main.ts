@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.94';
+const VERSION = '0.0.95';
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
@@ -94,7 +94,6 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
       args: [tempFilePath],
       stdout: "piped",
       stderr: "piped",
-      cwd: fsConfig.localPath
     });
     
     const result = await command.output();
@@ -158,7 +157,6 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
       args: [localFilePath],
       stdout: "piped",
       stderr: "piped",
-      cwd: fsConfig.localPath
     });
     
     const result = await command.output();
