@@ -6,7 +6,8 @@ A Model Context Protocol (MCP) server for running Python code directly on the lo
 
 - Execute Python code directly on the local machine using a specified Python interpreter
 - Run Python files by path
-- Map a virtual filesystem path to a local directory
+- **Multiple virtual filesystem mounts** to map different local directories
+- **Support for overlapping mount points** with more specific paths taking precedence
 - **Use an existing Python virtual environment** instead of creating new ones for each run
 - Similar interface to the Pyodide-based MCP Run Python server
 
@@ -15,9 +16,11 @@ A Model Context Protocol (MCP) server for running Python code directly on the lo
 Unlike the Pyodide-based MCP Run Python server, this server:
 
 1. Runs code directly on your local Python interpreter (not in a sandbox)
-2. Has full access to your local filesystem through a configurable mount point
+2. Has full access to your local filesystem through configurable mount points
 3. Can run existing Python files, not just code strings
 4. Can use an existing virtual environment with pre-installed dependencies
+5. Supports multiple mount points for more flexible file organization
+6. Handles overlapping mount points correctly (more specific paths take precedence)
 
 ## Usage
 
@@ -39,13 +42,23 @@ irm https://deno.land/install.ps1 | iex
 To run with stdio transport (for local subprocess usage):
 
 ```bash
-deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /path/to/your/local/directory:/working_space --venv /path/to/your/virtualenv
+deno run -A jsr:@changhc/mcp-run-python-local stdio --mount /path/to/your/workspace:/working --venv /path/to/your/virtualenv
+```
+
+To run with multiple mount points:
+
+```bash
+deno run -A jsr:@changhc/mcp-run-python-local stdio \
+  --mount /path/to/your/workspace:/working \
+  --mount /path/to/your/data:/data \
+  --mount /path/to/your/output:/output \
+  --venv /path/to/your/virtualenv
 ```
 
 To run as an HTTP server with SSE transport:
 
 ```bash
-deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /path/to/your/local/directory:/working_space --venv /path/to/your/virtualenv
+deno run -A jsr:@changhc/mcp-run-python-local sse --port 3001 --mount /path/to/your/workspace:/working --venv /path/to/your/virtualenv
 ```
 
 To test if everything is working correctly (does a basic Python test):
@@ -57,7 +70,10 @@ deno run -A jsr:@changhc/mcp-run-python-local warmup
 ### Options
 
 - `--port`: Port to run the SSE server on (default: 3001)
-- `--mount`: Mount binding in Docker-style format `localPath:mountPoint` (default: temp directory:/working)
+- `--mount`: Mount binding in Docker-style format `localPath:mountPoint` (can be specified multiple times)
+  - The first mount point is used as the main working directory
+  - All temporary Python files are created in the first mount point
+  - More specific mount points take precedence over more general ones
 - `--venv`: Path to an existing Python virtual environment to use (default: uses system Python)
 
 ## Using with PydanticAI
@@ -74,15 +90,17 @@ logfire.configure()
 logfire.instrument_mcp()
 logfire.instrument_pydantic_ai()
 
-# Create the MCP server
+# Create the MCP server with multiple mount points
 server = MCPServerStdio('deno',
     args=[
         'run',
         '-A',
         'jsr:@changhc/mcp-run-python-local',
         'stdio',
-        '--mount', '/path/to/your/local/directory:/working',
-        '--venv', '/path/to/your/virtualenv'  # Specify your virtual environment
+        '--mount', '/path/to/your/workspace:/working',  # Main working directory
+        '--mount', '/path/to/your/data:/data',          # Additional data directory
+        '--mount', '/path/to/your/output:/output',      # Output directory
+        '--venv', '/path/to/your/virtualenv'            # Specify your virtual environment
     ])
 
 # Create the agent with the server
@@ -91,12 +109,62 @@ agent = Agent('claude-3-5-sonnet-latest', mcp_servers=[server])
 # Run a query that will use Python
 async def main():
     async with agent.run_mcp_servers():
-        result = await agent.run('Create a plot showing a sine wave and save it to a file')
+        result = await agent.run('Create a plot showing a sine wave and save it to the output directory')
     print(result.output)
 
 if __name__ == '__main__':
     import asyncio
     asyncio.run(main())
+```
+
+## Using Multiple Mount Points
+
+This server supports multiple mount points, allowing you to create a more organized file structure:
+
+1. The first mount point specified is the "main" mount point:
+   - It serves as the current working directory (cwd) for Python processes
+   - Temporary Python files are created in this directory
+   - Generally used for your primary workspace
+
+2. Additional mount points can be used for specific purposes:
+   - Data directories containing large datasets
+   - Output directories for generated files
+   - Separate codebases or libraries
+   - Configuration directories
+
+3. Mount points can overlap, with more specific paths taking precedence:
+   ```bash
+   # Example of overlapping mount points
+   deno run -A jsr:@changhc/mcp-run-python-local stdio \
+     --mount /home/user/project:/working \
+     --mount /data:/working/data
+   ```
+   In this example:
+   - The path `/working/data/file.txt` would resolve to `/data/file.txt` on the local machine
+   - The path `/working/other/file.txt` would resolve to `/home/user/project/other/file.txt`
+
+Example of using multiple mount points:
+
+```bash
+deno run -A jsr:@changhc/mcp-run-python-local stdio \
+  --mount /path/to/project:/working \
+  --mount /path/to/datasets:/data \
+  --mount /path/to/config:/config \
+  --mount /path/to/output:/output
+```
+
+Your Python code can access these directories through their mount points:
+
+```python
+# Load data from the data directory
+df = pd.read_csv('/data/my_dataset.csv')
+
+# Save output to the output directory
+plt.savefig('/output/my_plot.png')
+
+# Read configuration from the config directory
+with open('/config/settings.json', 'r') as f:
+    config = json.load(f)
 ```
 
 ## Using Existing Virtual Environments
@@ -132,11 +200,12 @@ Do not expose this server to untrusted inputs or to the public internet.
 
 ## Example Python Code
 
-Here's an example of code that creates a plot and saves it to the virtual mount point:
+Here's an example of code that creates a plot and saves it to multiple mount points:
 
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 # Create a simple plot
 x = np.linspace(0, 10, 100)
@@ -149,10 +218,16 @@ plt.xlabel('x')
 plt.ylabel('sin(x)')
 plt.grid(True)
 
-# Save the plot to the mounted directory
-save_path = '/working/sine_wave.png'
-plt.savefig(save_path)
-print(f"Plot saved to {save_path}")
+# Save the plot to the main working directory
+main_save_path = '/working/sine_wave.png'
+plt.savefig(main_save_path)
+print(f"Plot saved to {main_save_path}")
+
+# Save the plot to the output directory (if it exists)
+if os.path.exists('/output'):
+    output_save_path = '/output/sine_wave.png'
+    plt.savefig(output_save_path)
+    print(f"Plot also saved to {output_save_path}")
 ```
 
 ## License

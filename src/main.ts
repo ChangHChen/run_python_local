@@ -5,82 +5,121 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.97';
+const VERSION = '0.0.98';
 
 function replaceLocalPaths(output: string): string {
-  // Replace all occurrences of the local path with the mount point
-  return output.replace(
-    new RegExp(fsConfig.localPath, 'g'),
-    fsConfig.mountPoint
+  // Sort mount points by specificity (longest local path first)
+  const sortedMounts = [...fsConfig.mounts].sort((a, b) => 
+    b.localPath.length - a.localPath.length
   );
+  
+  // Replace all occurrences of local paths with mount points
+  let result = output;
+  for (const mount of sortedMounts) {
+    result = result.replace(
+      new RegExp(mount.localPath, 'g'),
+      mount.mountPoint
+    );
+  }
+  return result;
 }
 
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
-  mountPoint: string;  // Virtual path (e.g., /working)
-  localPath: string;   // Real path on the machine (e.g., /home/user/project/temp)
+  mounts: Array<{
+    mountPoint: string;  // Virtual path (e.g., /working)
+    localPath: string;   // Real path on the machine (e.g., /home/user/project/temp)
+  }>;
   venvPath: string | null;  // Path to the existing virtual environment
 }
 
 // Default to a temp directory if no configuration is provided
 const defaultConfig: FileSystemConfig = {
-  mountPoint: '/working',
-  localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' }),
+  mounts: [{
+    mountPoint: '/working',
+    localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })
+  }],
   venvPath: null  // Default to null (will use system Python if not specified)
 };
 
 let fsConfig: FileSystemConfig = defaultConfig;
 
 // Parse Docker-style mount argument
-function parseMountArg(mountArg: string): { localPath: string, mountPoint: string } {
-  // Split by colon to get local path and mount point
-  const parts = mountArg.split(':');
-  
-  if (parts.length !== 2) {
-    throw new Error('Invalid mount format. Expected format: localPath:mountPoint');
-  }
-  
-  const [localPath, mountPoint] = parts;
-  
-  // Validate paths
-  if (!localPath || !mountPoint) {
-    throw new Error('Both local path and mount point must be specified');
-  }
-  
-  return { localPath, mountPoint };
+function parseMountArgs(mountArgs: string[]): Array<{ localPath: string, mountPoint: string }> {
+  return mountArgs.map(mountArg => {
+    // Split by colon to get local path and mount point
+    const parts = mountArg.split(':');
+    
+    if (parts.length !== 2) {
+      throw new Error('Invalid mount format. Expected format: localPath:mountPoint');
+    }
+    
+    const [localPath, mountPoint] = parts;
+    
+    // Validate paths
+    if (!localPath || !mountPoint) {
+      throw new Error('Both local path and mount point must be specified');
+    }
+    
+    return { localPath, mountPoint };
+  });
 }
 
 // Create the mount directory if it doesn't exist
-async function ensureMountDirectoryExists() {
+async function ensureMountDirectoryExists(localPath: string) {
   try {
-    await Deno.mkdir(fsConfig.localPath, { recursive: true });
-    console.log(`Created directory: ${fsConfig.localPath}`);
+    await Deno.mkdir(localPath, { recursive: true });
+    console.log(`Created directory: ${localPath}`);
   } catch (error) {
     // Ignore error if directory already exists
     if (!(error instanceof Deno.errors.AlreadyExists)) {
-      console.error(`Failed to create directory: ${fsConfig.localPath}`, error);
+      console.error(`Failed to create directory: ${localPath}`, error);
       throw error;
     }
   }
 }
 
+// Ensure all mount directories exist
+async function ensureAllMountDirectoriesExist() {
+  for (const mount of fsConfig.mounts) {
+    await ensureMountDirectoryExists(mount.localPath);
+  }
+}
+
 // Convert a virtual path to a local filesystem path
 function virtualToLocalPath(virtualPath: string): string {
-  if (!virtualPath.startsWith(fsConfig.mountPoint)) {
-    throw new Error(`Path ${virtualPath} is outside the mount point ${fsConfig.mountPoint}`);
+  // Sort mount points by specificity (longest mount point first)
+  const sortedMounts = [...fsConfig.mounts].sort((a, b) => 
+    b.mountPoint.length - a.mountPoint.length
+  );
+  
+  // Check each mount point in order of specificity
+  for (const mount of sortedMounts) {
+    if (virtualPath.startsWith(mount.mountPoint)) {
+      const relativePath = virtualPath.substring(mount.mountPoint.length);
+      return `${mount.localPath}${relativePath}`;
+    }
   }
   
-  const relativePath = virtualPath.substring(fsConfig.mountPoint.length);
-  return `${fsConfig.localPath}${relativePath}`;
+  throw new Error(`Path ${virtualPath} is outside all mount points: ${fsConfig.mounts.map(m => m.mountPoint).join(', ')}`);
 }
 
 // Replace virtual paths in code with local paths
 function replaceVirtualPaths(code: string): string {
-  // Replace all occurrences of the mount point with the local path
-  return code.replace(
-    new RegExp(fsConfig.mountPoint, 'g'), 
-    fsConfig.localPath
+  // Sort mount points by specificity (longest mount point first)
+  const sortedMounts = [...fsConfig.mounts].sort((a, b) => 
+    b.mountPoint.length - a.mountPoint.length
   );
+  
+  // Replace all occurrences of mount points with their local paths
+  let result = code;
+  for (const mount of sortedMounts) {
+    result = result.replace(
+      new RegExp(mount.mountPoint, 'g'), 
+      mount.localPath
+    );
+  }
+  return result;
 }
 
 // Get the Python executable path from the virtual environment or use system Python
@@ -101,27 +140,27 @@ function getPythonPath(): string {
 // Run Python code using the specified or system Python
 async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data: string) => void): Promise<RunResult> {
   try {
-    // Ensure the mount directory exists
-    await ensureMountDirectoryExists();
+    // Ensure all mount directories exist
+    await ensureAllMountDirectoriesExist();
     
     // Process the Python code to replace virtual paths with local paths
     const processedCode = replaceVirtualPaths(pythonCode);
     
-    // Create a temporary file to hold the processed Python code
-    const tempFilePath = `${fsConfig.localPath}/_temp_${Date.now()}.py`;
+    // Create a temporary file to hold the processed Python code in the main mount point
+    const tempFilePath = `${fsConfig.mounts[0].localPath}/_temp_${Date.now()}.py`;
     await Deno.writeTextFile(tempFilePath, processedCode);
     
     // Get the Python path (from venv or system)
     const pythonPath = getPythonPath();
     
-    // Run the Python code
+    // Run the Python code with CWD set to the main mount point
     log('info', `Running Python code from ${tempFilePath} using Python: ${pythonPath}`);
     
     const command = new Deno.Command(pythonPath, {
       args: [tempFilePath],
       stdout: "piped",
       stderr: "piped",
-      cwd: fsConfig.localPath
+      cwd: fsConfig.mounts[0].localPath // Use the main mount as cwd
     });
     
     const result = await command.output();
@@ -148,8 +187,8 @@ async function runPythonCode(pythonCode: string, log: (level: LoggingLevel, data
     } else {
       return {
         status: 'error',
-        output: output,
-        error: error || `Process exited with code ${result.code}`
+        output: output.map(line => replaceLocalPaths(line)),
+        error: replaceLocalPaths(error) || `Process exited with code ${result.code}`
       };
     }
   } catch (error) {
@@ -168,6 +207,9 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     // Convert virtual path to local path
     const localFilePath = virtualToLocalPath(filePath);
     
+    // Ensure all mount directories exist
+    await ensureAllMountDirectoriesExist();
+    
     // Ensure the file exists
     try {
       await Deno.stat(localFilePath);
@@ -178,14 +220,14 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     // Get the Python path (from venv or system)
     const pythonPath = getPythonPath();
     
-    // Run the Python file
+    // Run the Python file with CWD set to the main mount point
     log('info', `Running Python file: ${localFilePath} using Python: ${pythonPath}`);
     
     const command = new Deno.Command(pythonPath, {
       args: [localFilePath],
       stdout: "piped",
       stderr: "piped",
-      cwd: fsConfig.localPath
+      cwd: fsConfig.mounts[0].localPath // Use the main mount as cwd
     });
     
     const result = await command.output();
@@ -204,8 +246,8 @@ async function runPythonFile(filePath: string, log: (level: LoggingLevel, data: 
     } else {
       return {
         status: 'error',
-        output: output,
-        error: error || `Process exited with code ${result.code}`
+        output: output.map(line => replaceLocalPaths(line)),
+        error: replaceLocalPaths(error) || `Process exited with code ${result.code}`
       };
     }
   } catch (error) {
@@ -254,7 +296,7 @@ function createServer(): McpServer {
       version: VERSION,
     },
     {
-      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount point (e.g., /working/). The code will be executed using the specified virtual environment or system Python.',
+      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount points. The code will be executed using the specified virtual environment or system Python.',
       capabilities: {
         logging: {},
       },
@@ -423,9 +465,12 @@ Invalid arguments.
 Usage: deno run -A jsr:@changhc/mcp-run-python-local [stdio|sse|warmup] [options]
 
 options:
-  --port <port>    Port to run the SSE server on (default: 3001)
-  --mount <path>   Local path and mount point in format localPath:mountPoint (default: ${defaultConfig.localPath}:${defaultConfig.mountPoint})
-  --venv <path>    Path to an existing Python virtual environment to use (default: uses system Python)`,
+  --port <port>      Port to run the SSE server on (default: 3001)
+  --mount <path>     Local path and mount point in format localPath:mountPoint (can be specified multiple times)
+                     The first mount point is used as the main working directory
+                     More specific mount points take precedence over more general ones for path resolution
+                     (default: ${defaultConfig.mounts[0].localPath}:${defaultConfig.mounts[0].mountPoint})
+  --venv <path>      Path to an existing Python virtual environment to use (default: uses system Python)`,
   );
 }
 
@@ -446,7 +491,7 @@ print("Warmup test successful!")
   };
   
   try {
-    await ensureMountDirectoryExists();
+    await ensureAllMountDirectoriesExist();
     const result = await runPythonCode(code, logger);
     console.log('Tool return value:');
     console.log(asXml(result));
@@ -464,22 +509,22 @@ export async function main() {
   
   if (args.length >= 1) {
     const flags = parseArgs(Deno.args, {
-      string: ['port', 'mount', 'venv'],
+      string: ['port', 'venv'],
+      collect: ['mount'], // This will collect all --mount arguments into an array
       default: { 
         port: '3001',
-        mount: `${defaultConfig.localPath}:${defaultConfig.mountPoint}`,
+        mount: [`${defaultConfig.mounts[0].localPath}:${defaultConfig.mounts[0].mountPoint}`],
         venv: null  // Default to null (will use system Python)
       },
     });
     
-    // Parse the Docker-style mount format
     try {
-      const { localPath, mountPoint } = parseMountArg(flags.mount);
+      // Parse the multiple Docker-style mount formats
+      const mounts = parseMountArgs(flags.mount);
       
       // Set up file system config
       fsConfig = {
-        mountPoint,
-        localPath,
+        mounts: mounts,
         venvPath: flags.venv
       };
     } catch (error) {
