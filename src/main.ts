@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 
 function replaceLocalPaths(output: string): string {
   // Sort mount points by specificity (longest local path first)
@@ -27,7 +27,7 @@ function replaceLocalPaths(output: string): string {
 // Configuration for the virtual file system mapping
 interface FileSystemConfig {
   mounts: Array<{
-    mountPoint: string;  // Virtual path (e.g., /working)
+    mountPoint: string;  // Virtual path (e.g., /working_space)
     localPath: string;   // Real path on the machine (e.g., /home/user/project/temp)
   }>;
   venvPath: string | null;  // Path to the existing virtual environment
@@ -36,7 +36,7 @@ interface FileSystemConfig {
 // Default to a temp directory if no configuration is provided
 const defaultConfig: FileSystemConfig = {
   mounts: [{
-    mountPoint: '/working',
+    mountPoint: '/working_space',
     localPath: Deno.makeTempDirSync({ prefix: 'mcp-python-local-' })
   }],
   venvPath: null  // Default to null (will use system Python if not specified)
@@ -306,20 +306,16 @@ function createServer(): McpServer {
       version: VERSION,
     },
     {
-      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file. Files can be read/written at the virtual mount points. The code will be executed using the specified virtual environment or system Python.',
+      instructions: 'Call "run_python_code" to run Python code directly on the local machine, or "run_python_file" to run a Python file.',
       capabilities: {
         logging: {},
       },
     },
   );
 
-  const toolDescription = `Tool to execute Python code directly on the local machine.
-  
-The code will be executed using the specified virtual environment or system Python.`;
+  const toolDescription = `Tool to execute Python code directly on the local machine.`;
 
-  const fileToolDescription = `Tool to execute a Python file on the local machine.
-  
-The file will be executed using the specified virtual environment or system Python.`;
+  const fileToolDescription = `Tool to execute a Python file on the local machine.`;
 
   let setLogLevel: LoggingLevel = 'emergency';
 
@@ -373,9 +369,9 @@ The file will be executed using the specified virtual environment or system Pyth
   );
   server.tool(
     'install_python_package',
-    'Tool to install Python packages using pip in the specified virtual environment or system Python. Use package_name==version format to specify versions.',
+    'Tool to install Python packages using pip.',
     { 
-      package_name: z.string().describe('Python package name to install (use package_name==version format to specify version)')
+      package_name: z.string().describe('Python package name to install (use package_name==version format if you need to specify version)')
     },
     async ({ package_name }: { package_name: string }) => {
       const logPromises: Promise<void>[] = [];
