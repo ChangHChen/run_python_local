@@ -5,7 +5,7 @@ import { type LoggingLevel, SetLevelRequestSchema } from '@modelcontextprotocol/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const VERSION = '0.1.5';
+const VERSION = '0.1.6';
 
 /** ───────────────────────────────────────────────────────────────────
  * Build a tiny Python import‑hook that rewrites every imported module’s
@@ -23,11 +23,14 @@ import importlib.machinery, importlib.util, sys, re
 _REWRITES = ${rewrites}
 
 class _MountLoader(importlib.machinery.SourceFileLoader):
-    def get_data(self, path):
-        src = super().get_data(path).decode()
+    # Override *get_source* so we deal with decoded text, not raw bytes.
+    def get_source(self, fullname):
+        src = super().get_source(fullname)
+        if src is None:
+            return None
         for v, l in _REWRITES:
             src = re.sub(fr"{re.escape(v)}(?=/|$)", l, src)
-        return src.encode()
+        return src
 
 class _MountFinder(importlib.machinery.PathFinder):
     @classmethod
@@ -37,7 +40,10 @@ class _MountFinder(importlib.machinery.PathFinder):
             spec.loader = _MountLoader(spec.loader.name, spec.loader.path)
         return spec
 
-sys.meta_path.insert(0, _MountFinder)
+# Make sure our finder takes precedence
+if not any(isinstance(f, _MountFinder) for f in sys.meta_path):
+    sys.meta_path.insert(0, _MountFinder)
+(0, _MountFinder)
 `;}
 
 // ───────────────────────────────────────────────────────────────────
