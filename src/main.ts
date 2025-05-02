@@ -287,4 +287,6 @@ export async function main() {
 if (import.meta.main) {
   await main().catch((e) => {
     console.error(e);
-    Deno
+    Deno.exit(1);
+  });
+}
