@@ -9,7 +9,7 @@ import { z } from 'zod';
 // Configuration & constants
 // ---------------------------------------------------------------------------
 
-const VERSION = '0.3.0'; // no‑mount, no‑workdir
+const VERSION = '0.3.1'; // no‑mount, no‑workdir
 
 /**
  * Pick the Python interpreter. If a virtual‑env is supplied use its interpreter,
@@ -23,8 +23,16 @@ function getPythonPath(venv: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for running Python
+// Helpers for running Python & pip
 // ---------------------------------------------------------------------------
+
+function getPipPath(venv: string | null): string {
+  if (!venv) return Deno.build.os === 'windows' ? 'pip' : 'pip';
+  return Deno.build.os === 'windows'
+    ? `${venv}\Scripts\pip.exe`
+    : `${venv}/bin/pip`;
+}
+
 
 interface RunResult {
   status: 'success' | 'error';
@@ -134,43 +142,26 @@ function createServer(venv: string | null): McpServer {
   };
 
   // tools
-  server.tool(
-    'run_python_code',
-    'Execute arbitrary Python code.',
-    { python_code: z.string() },
-    async ({ python_code }) => {
-      const res = await runPythonCode(python_code, python, log);
-      return { content: [{ type: 'text', text: asXml(res) }] };
-    },
-  );
-
-  server.tool(
-    'run_python_file',
-    'Execute a Python file on the local filesystem.',
-    { file_path: z.string() },
-    async ({ file_path }) => {
-      const res = await runPythonFile(file_path, python, log);
-      return { content: [{ type: 'text', text: asXml(res) }] };
-    },
-  );
-
-  server.tool(
+    server.tool(
     'install_python_package',
     'Install a Python package using pip.',
     { package_name: z.string() },
     async ({ package_name }) => {
-      const proc = new Deno.Command(python, {
-        args: ['-m', 'pip', 'install', package_name],
+      const pipCmd = getPipPath(venv);
+      const proc = new Deno.Command(pipCmd, {
+        args: ['install', package_name],
         stdout: 'piped',
         stderr: 'piped',
       });
       const { code, stdout, stderr } = await proc.output();
       const dec = new TextDecoder();
       const res: RunResult = code === 0
-        ? { status: 'success', output: dec.decode(stdout).split('\n'), error: null }
+        ? { status: 'success', output: dec.decode(stdout).split('
+'), error: null }
         : {
             status: 'error',
-            output: dec.decode(stdout).split('\n'),
+            output: dec.decode(stdout).split('
+'),
             error: dec.decode(stderr) || `Exit code ${code}`,
           };
       return { content: [{ type: 'text', text: asXml(res) }] };
